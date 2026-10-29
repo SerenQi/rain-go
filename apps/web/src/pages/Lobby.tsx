@@ -36,7 +36,7 @@ const FAMILIES: { family: GameModule["family"]; title: string }[] = [
 
 const playersText = (g: GameModule) => (g.players.min === g.players.max ? `${g.players.min} 人` : `${g.players.min}–${g.players.max} 人`);
 
-function statusOf(g: GameMeta) {
+export function statusOf(g: GameMeta) {
   if (g.over) return g.result ?? "已结束";
   if (g.waiting) return `等人入座 · ${g.seats.filter((s) => s.joined).length}/${g.seats.length}`;
   const waiting = g.waitingOn.map((i) => g.seats[i]?.name).filter(Boolean);
