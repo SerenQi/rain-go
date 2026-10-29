@@ -2,7 +2,7 @@
 
 Round head crops (256 × 256, WebP) of fan-made AI "gijinka" portraits. These are fan works, not official images of any model maker, and no maker endorses this project. **Non-commercial use only.**
 
-## From Model Muses (13)
+## From Model Muses (12)
 
 Source: [saya-ch/model-muses](https://github.com/saya-ch/model-muses), `原画/<name>-ref.jpg`, collected from the 蓝色大肥鱼 fan site. See that repo's `LICENSE` and `docs/来源与版权.md` for per-image provenance.
 
@@ -18,13 +18,14 @@ Artist: **ZipZipPipe** (Bilibili UID 4168597). The artist states the images are 
 | `mistral.webp` | Mistral | `mistral-ref.jpg` |
 | `whale.webp` | DeepSeek | `deepseek-ref.jpg` |
 | `cloud.webp` | Qwen | `qwen-ref.jpg` |
-| `bean.webp` | Doubao | `seed-ref.jpg` |
 | `moon.webp` | Kimi | `kimi-ref.jpg` |
 | `glm.webp` | Zhipu GLM | `glm-ref.jpg` |
 | `wave.webp` | MiniMax | `minimax-ref.jpg` |
 | `hunyuan.webp` | Tencent Hunyuan | `hunyuan-ref.jpg` |
 
 `whale.webp` (DeepSeek) is a redesign of the original character 「溟月」 by **上善无形**. Both layers are licensed [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/): credit both authors, non-commercial use only, and share derivatives under the same licence. This crop is shared under CC BY-NC-SA 4.0.
+
+Doubao has no portrait here; it shows its logo.
 
 ## Generated (2)
 
