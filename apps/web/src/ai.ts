@@ -83,7 +83,6 @@ export async function askMove(c: ModelConfig, table: string, moveHelp: string, c
 /** The one player connector a person adds per site; each game's seat code goes in the prompt. */
 export const PLAY_CONNECTOR = "xichuang";
 export const playConnectorUrl = () => `${location.origin}/mcp/play`;
-export const playConnectorCommand = () => `claude mcp add --transport http ${PLAY_CONNECTOR} ${playConnectorUrl()}`;
 
 /**
  * What to send the agent for one game. The seat code names the room and the seat, so the connector

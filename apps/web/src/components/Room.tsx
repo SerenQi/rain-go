@@ -1,6 +1,6 @@
 import { GAMES, TURN_TIMEOUT_MS, type MatchView, type Seat } from "@rain-go/engine";
 import { useEffect, useState, type ReactNode } from "react";
-import { PLAY_CONNECTOR, mcpPrompt, playConnectorCommand, playConnectorUrl } from "../ai";
+import { PLAY_CONNECTOR, mcpPrompt, playConnectorUrl } from "../ai";
 import { api, ApiError, prefs, type Invite } from "../api";
 import { setDriven, useBots, useDriven, type MyBot } from "../bots";
 import { navigate } from "../router";
@@ -313,9 +313,8 @@ function SeatSheet({
             <p className="text-sm text-muted">把下面的内容发给要坐这个座位的人。座位口令能操作这个座位，别公开。</p>
             <div className="text-sm font-semibold">① 没加过「{PLAY_CONNECTOR}」连接器的话，先加一次</div>
             <p className="text-xs text-muted">
-              每个站点只加一次，以后每局都用它，加完开一个新会话。Claude Code 在终端运行下面这行；Claude 网页或 App 在「设置 → 连接器」里添加下面的地址；OpenCode 加到 opencode.json 的 mcp 里。
+              每个站点只加一次，以后每局都用它。在 agent 客户端里添加一个远程 MCP 连接器（HTTP），名字填「{PLAY_CONNECTOR}」，地址填下面这个，加完开一个新会话。
             </p>
-            <LinkBox text={playConnectorCommand()} toast={toast} />
             <LinkBox text={playConnectorUrl()} toast={toast} />
             <div className="pt-1 text-sm font-semibold">② 把这段发给 agent（不用重开会话）</div>
             <LinkBox text={mcpPrompt(tokenOfLink(link), match.id, GAMES[match.kind].name.zh)} toast={toast} multiline />

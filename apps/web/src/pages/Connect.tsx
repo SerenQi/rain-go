@@ -1,7 +1,6 @@
 import { motion } from "motion/react";
-import { useEffect, useState } from "react";
-import { PLAY_CONNECTOR, PROVIDERS, endpointFor, playConnectorCommand, playConnectorUrl, type Provider } from "../ai";
-import { api, prefs } from "../api";
+import { useState } from "react";
+import { PLAY_CONNECTOR, PROVIDERS, endpointFor, playConnectorUrl, type Provider } from "../ai";
 import { botKey, deleteBot, newBot, saveBot, useBots, type MyBot } from "../bots";
 import { AVATARS, AVATAR_IDS, Avatar } from "../components/Avatar";
 import { Sheet } from "../components/Chat";
@@ -27,19 +26,12 @@ const TOOLS: [string, string][] = [
 export function Connect() {
   const toast = useToast();
   const wide = useWide();
-  const [authRequired, setAuthRequired] = useState(true);
-  useEffect(() => {
-    api.config().then((c) => setAuthRequired(c.authRequired), () => {});
-  }, []);
-  const token = prefs.token();
-  const url = `${location.origin}/mcp${authRequired ? `/${token || "<ACCESS_TOKEN>"}` : ""}`;
   const copy = (s: string) =>
     navigator.clipboard.writeText(s).then(
       () => toast.show("已复制"),
       () => toast.show("复制失败，请手动选择"),
     );
 
-  const cmd = `claude mcp add --transport http rain-go ${url}`;
   const bots = useBots();
   const [editing, setEditing] = useState<MyBot | null>(null);
   return (
@@ -84,53 +76,13 @@ export function Connect() {
           <p className="mt-1 text-sm text-muted">
             让你的 agent 坐进别人的房间用这个。加一次「{PLAY_CONNECTOR}」，以后每局只要把房主给的提示词（带座位口令）发给 agent，不用再加连接器，也不用重开会话。
           </p>
-          <code
-            className="mt-2 block cursor-pointer overflow-x-auto whitespace-nowrap rounded-xl bg-black/80 px-3 py-2 font-mono text-xs text-white lg:text-sm"
-            onClick={() => copy(playConnectorCommand())}
-          >
-            {playConnectorCommand()}
-          </code>
           <div className="mt-2 flex items-center gap-2">
             <code className="field flex !min-h-[40px] items-center overflow-x-auto whitespace-nowrap font-mono text-sm">{playConnectorUrl()}</code>
             <button className="btn btn-ink !min-h-[40px] !px-3.5" onClick={() => copy(playConnectorUrl())} aria-label="复制玩家连接器地址">
               <IconCopy width={18} height={18} />
             </button>
           </div>
-          <p className="mt-2 text-xs text-faint">Claude Code 运行上面那行；Claude 网页或 App 在「设置 → 连接器」里添加这个地址。它本身不带任何口令，可以放心保存。</p>
-        </motion.section>
-
-        <motion.section {...card} className="glass shrink-0 px-5 py-4 lg:px-7 lg:py-6">
-          <div className="text-[1.05rem] text-ink-2 lg:text-[1.5rem]">Connector URL</div>
-          <div className="mt-2 flex items-center gap-2 lg:mt-3">
-            <code className="field flex !min-h-[44px] items-center overflow-x-auto whitespace-nowrap font-mono text-sm">{url}</code>
-            <button className="btn btn-ink !min-h-[44px] !px-3.5" onClick={() => copy(url)} aria-label="复制链接">
-              <IconCopy width={20} height={20} />
-            </button>
-          </div>
-          {authRequired && (
-            <p className="mt-2 text-xs text-faint lg:text-sm">
-              链接里带着访问口令，别发给别人。{!token && "先在右上角设置里填口令，这里会自动补全。"}
-            </p>
-          )}
-        </motion.section>
-
-        <motion.section {...card} className="glass shrink-0 px-5 py-4 lg:px-7 lg:py-6">
-          <div className="text-[1.35rem] font-bold lg:text-[1.9rem]">How to</div>
-          <ol className="mt-2 space-y-2.5 text-[0.95rem] lg:mt-3 lg:space-y-3 lg:text-[1.05rem]">
-            <li className="stat-bar">
-              <b>Claude 网页或 App</b>：设置 → 连接器 → 添加自定义连接器，粘贴上面的链接。
-            </li>
-            <li className="stat-bar">
-              <b>Claude Code</b>：点下面这行复制，在终端运行。
-              <code
-                className="mt-1.5 block cursor-pointer overflow-x-auto whitespace-nowrap rounded-xl bg-black/80 px-3 py-2 font-mono text-xs text-white lg:text-sm"
-                onClick={() => copy(cmd)}
-              >
-                {cmd}
-              </code>
-            </li>
-            <li className="stat-bar">然后对 AI 说：「我们来玩一局五子棋吧」。它会开局，把链接发给你。</li>
-          </ol>
+          <p className="mt-2 text-xs text-faint">在你的 agent 客户端里添加一个远程 MCP 连接器（HTTP），名字填「{PLAY_CONNECTOR}」，地址填上面这个。它本身不带任何口令，可以放心保存。</p>
         </motion.section>
 
         <motion.details {...card} className="glass shrink-0 px-5 py-3.5 lg:px-7 lg:py-6 xl:col-span-2" open={wide}>
