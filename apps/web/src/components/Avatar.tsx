@@ -4,7 +4,10 @@ import type { ReactNode } from "react";
 /**
  * Preset avatars. The AI ones are the model makers' logos from Lobe Icons
  * (https://github.com/lobehub/lobe-icons, MIT, @lobehub/icons-static-svg 1.94.0); the marks
- * belong to their owners. The rest are small round mascots drawn here.
+ * belong to their owners. Where assets/avatars-anime has a portrait for a model, it is shown
+ * instead, with the logo as a badge: fan art by ZipZipPipe via Model Muses (CC BY-NC-SA 4.0,
+ * non-commercial; see assets/avatars-anime/CREDITS.md) or a generated one. The rest are small round
+ * mascots drawn here.
  */
 type Preset = Mascot | Logo;
 
@@ -24,10 +27,15 @@ interface Logo {
   label: string;
   bg: string;
   logo: string;
+  /** The anime-girl portrait for this model, when there is one; the logo then becomes a corner badge. */
+  art?: string;
 }
 
 const LOGOS = import.meta.glob<string>("../assets/avatars/*.svg", { eager: true, query: "?url&no-inline", import: "default" });
+const ARTS = import.meta.glob<string>("../assets/avatars-anime/*.webp", { eager: true, query: "?url&no-inline", import: "default" });
 const logo = (id: string) => LOGOS[`../assets/avatars/${id}.svg`]!;
+const art = (id: string) => ARTS[`../assets/avatars-anime/${id}.webp`];
+const brand = (id: string, label: string, bg: string): Logo => ({ label, bg, logo: logo(id), ...(art(id) ? { art: art(id) } : {}) });
 
 const face = (ink = "#2b2b2b") => (
   <>
@@ -73,31 +81,61 @@ export const AVATARS: Record<string, Preset> = {
     ),
   },
   // Overseas
-  spark: { label: "Claude", bg: "#f8ebe4", logo: logo("spark") },
-  knot: { label: "ChatGPT", bg: "#f1f1ef", logo: logo("knot") },
-  twin: { label: "Gemini", bg: "#eaf0fd", logo: logo("twin") },
-  grok: { label: "Grok", bg: "#ececec", logo: logo("grok") },
-  llama: { label: "Llama", bg: "#e8f2fd", logo: logo("llama") },
-  mistral: { label: "Mistral", bg: "#fdf1e3", logo: logo("mistral") },
+  spark: brand("spark", "Claude", "#f8ebe4"),
+  knot: brand("knot", "ChatGPT", "#f1f1ef"),
+  twin: brand("twin", "Gemini", "#eaf0fd"),
+  grok: brand("grok", "Grok", "#ececec"),
+  llama: brand("llama", "Llama", "#e8f2fd"),
+  mistral: brand("mistral", "Mistral", "#fdf1e3"),
   // China
-  whale: { label: "DeepSeek", bg: "#e8edfe", logo: logo("whale") },
-  cloud: { label: "通义千问", bg: "#efeafd", logo: logo("cloud") },
-  bean: { label: "豆包", bg: "#ecf0fe", logo: logo("bean") },
-  moon: { label: "Kimi", bg: "#ececf0", logo: logo("moon") },
-  glm: { label: "智谱", bg: "#e9ecfe", logo: logo("glm") },
-  wave: { label: "MiniMax", bg: "#fde9ec", logo: logo("wave") },
-  wenxin: { label: "文心", bg: "#e7effc", logo: logo("wenxin") },
-  hunyuan: { label: "混元", bg: "#e5f0fd", logo: logo("hunyuan") },
-  xinghuo: { label: "星火", bg: "#e8f1fd", logo: logo("xinghuo") },
+  whale: brand("whale", "DeepSeek", "#e8edfe"),
+  cloud: brand("cloud", "通义千问", "#efeafd"),
+  bean: brand("bean", "豆包", "#ecf0fe"),
+  moon: brand("moon", "Kimi", "#ececf0"),
+  glm: brand("glm", "智谱", "#e9ecfe"),
+  wave: brand("wave", "MiniMax", "#fde9ec"),
+  wenxin: brand("wenxin", "文心", "#e7effc"),
+  hunyuan: brand("hunyuan", "混元", "#e5f0fd"),
+  xinghuo: brand("xinghuo", "星火", "#e8f1fd"),
 };
 
 export const AVATAR_IDS = Object.keys(AVATARS);
+
+/** Shown under avatar pickers: the portraits are fan art and their licence asks for credit. */
+export function AvatarCredit() {
+  return (
+    <p className="mt-1.5 text-[0.7rem] leading-snug text-faint">
+      二次元头像为同人二创，非官方形象：画师 ZipZipPipe（DeepSeek 角色原设：上善无形），收录于{" "}
+      <a className="underline" href="https://github.com/saya-ch/model-muses" target="_blank" rel="noopener noreferrer">
+        Model Muses
+      </a>
+      ，CC BY-NC-SA 4.0，仅限非商业使用。文心、星火为 AI 生成。
+    </p>
+  );
+}
 
 /** The avatar shown when a seat has none: a person for humans, a robot for game bots, a drop for AIs. */
 export const defaultAvatar = (kind: SeatKind) => (kind === "human" ? "person" : kind === "bot" ? "robot" : "drop");
 
 export function Avatar({ id, kind = "ai", size = 40, className = "" }: { id?: string; kind?: SeatKind; size?: number; className?: string }) {
   const p = AVATARS[id ?? ""] ?? AVATARS[defaultAvatar(kind)]!;
+  if ("logo" in p && p.art) {
+    // Big enough to tell apart: show the model's logo as a badge so the portrait stays recognisable.
+    const badge = size >= 40 ? Math.round(size * 0.36) : 0;
+    return (
+      <span className={`relative inline-block shrink-0 ${className}`} style={{ width: size, height: size }} role="img" aria-label={p.label}>
+        <img src={p.art} alt="" width={size} height={size} draggable={false} className="h-full w-full rounded-full object-cover" style={{ background: p.bg }} />
+        {badge > 0 && (
+          <span
+            className="absolute -right-0.5 -bottom-0.5 grid place-items-center rounded-full bg-white shadow-sm"
+            style={{ width: badge, height: badge }}
+          >
+            <img src={p.logo} alt="" width={Math.round(badge * 0.66)} height={Math.round(badge * 0.66)} draggable={false} />
+          </span>
+        )}
+      </span>
+    );
+  }
   if ("logo" in p) {
     return (
       <span

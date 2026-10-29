@@ -2,7 +2,7 @@ import { motion } from "motion/react";
 import { useState } from "react";
 import { PLAY_CONNECTOR, PROVIDERS, endpointFor, playConnectorUrl, type Provider } from "../ai";
 import { botKey, deleteBot, newBot, saveBot, useBots, type MyBot } from "../bots";
-import { AVATARS, AVATAR_IDS, Avatar } from "../components/Avatar";
+import { AVATARS, AVATAR_IDS, Avatar, AvatarCredit } from "../components/Avatar";
 import { Sheet } from "../components/Chat";
 import { IconCopy } from "../components/icons";
 import { Pill } from "../components/Pill";
@@ -149,6 +149,7 @@ function BotEditor({ bot: initial, isNew, onClose, toast }: { bot: MyBot; isNew:
               </button>
             ))}
           </div>
+          <AvatarCredit />
         </div>
         <div>
           <div className="mb-1.5 text-sm text-muted">类型</div>

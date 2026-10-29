@@ -3,7 +3,7 @@ import { motion } from "motion/react";
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError, prefs, type GameMeta, type SeatSpec } from "../api";
 import { BRAND } from "../brand";
-import { AVATAR_IDS, Avatar } from "../components/Avatar";
+import { AVATAR_IDS, Avatar, AvatarCredit } from "../components/Avatar";
 import { Sheet } from "../components/Chat";
 import { Ring } from "../components/Pill";
 import { Header, hhmm } from "../components/Shell";
@@ -255,6 +255,7 @@ function CreateRoom({ kind, onClose, toast }: { kind: GameKind; onClose: () => v
               </button>
             ))}
           </div>
+          <AvatarCredit />
         </div>
         <p className="text-sm text-muted">
           {seated

@@ -247,7 +247,7 @@ function TimeoutNotice({ match, readOnly }: { match: MatchView; readOnly: boolea
 function ArrivalNotice({ match, watching, onRules, onClose }: { match: MatchView; watching: boolean; onRules: () => void; onClose: () => void }) {
   const seat = match.me!;
   const game = GAMES[match.kind].name.zh;
-  const where = match.labels[seat] || ` ${seat + 1} 号位`;
+  const where = ` ${seat + 1} 号位`;
   const text = watching
     ? `你在看「${match.seats[seat]?.name ?? ""}」在${game}里的视角，只能看到它自己的牌，不能替它操作。`
     : `你被邀请坐进${game}的${where}。${match.waiting ? "等房主开局，" : ""}可以自己下，也可以点「让 AI 帮我下」，用你自己的 API Bot 代下。`;
