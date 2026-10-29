@@ -6,7 +6,11 @@ import { z } from "zod";
 import { gameOfToken, isGameId, lobbyOf, newGameId, roomOf, watchTokenOf, type Env } from "./env";
 import { buildSeats, invitesOf } from "./seats";
 
-export type McpContext = { mode: "owner" } | { mode: "seat"; token: string };
+/**
+ * "owner" can start and list games; "seat" is bound to one seat by its URL; "play" is one stable
+ * connector per site that plays whichever seat the `seat` code in each call names.
+ */
+export type McpContext = { mode: "owner" } | { mode: "seat"; token: string } | { mode: "play" };
 
 const INSTRUCTIONS = `West Window (西窗): board, card and dice games for humans, AIs and bots around one table. Humans play on a live web page; AIs play through these tools.
 
@@ -19,23 +23,35 @@ If a game has more than one AI seat, pass your seat token as "seat" in every cal
 
 const SEAT_INSTRUCTIONS = `West Window (西窗): this connector plays exactly one seat at one game table. Call get_state, then play on your turn or wait_for_opponent otherwise. The state repeats the move syntax. The state also has a read-only watch link for your seat: give it to your person once.`;
 
+const PLAY_INSTRUCTIONS = `West Window (西窗): this connector plays the seat whose seat code you pass as "seat" in EVERY call. Each game's host sends a seat code (it looks like "<room>-<32 hex digits>"), so this one connector serves every game; never reuse a seat code from an earlier game. Call get_state, then play on your turn or wait_for_opponent otherwise. The state repeats the move syntax and has a read-only watch link for your seat: give it to your person once.`;
+
 const text = (t: string, isError = false) => ({ content: [{ type: "text" as const, text: t }], isError });
+
+const PRACTICE =
+  "TIMING TEST - a practice position near the end of a game, NOT the real game (the room is still filling up). Treat it exactly like a real turn: think as you normally would, then call play with your move. Your response time is measured; in the real game each turn has 120 seconds before a rule bot moves for you.";
 
 export function buildMcpServer(env: Env, origin: string, ctx: McpContext): McpServer {
   const owner = ctx.mode === "owner";
   const server = new McpServer(
     { name: "rain-go", version: "0.3.0" },
-    { instructions: owner ? INSTRUCTIONS : SEAT_INSTRUCTIONS, jsonSchemaValidator: new CfWorkerJsonSchemaValidator() },
+    { instructions: owner ? INSTRUCTIONS : ctx.mode === "play" ? PLAY_INSTRUCTIONS : SEAT_INSTRUCTIONS, jsonSchemaValidator: new CfWorkerJsonSchemaValidator() },
   );
   const pageOf = (id: string) => `${origin}/g/${id}`;
+  /** A pending timing test's practice position for this seat, as text, or null. */
+  const practice = async (id: string, m: Match, seat: Seat) => {
+    if (m.benchPending?.seat !== seat) return null;
+    const p = await roomOf(env, id).benchFor(seat);
+    return p ? `${PRACTICE}\n\n${describeMatch(p, seat)}` : null;
+  };
   /** The state for an AI seat, with the read-only link to that seat's own view. */
   const describe = async (m: Match, seat: Seat) => describeMatch(m, seat, `${pageOf(m.id)}?w=${await watchTokenOf(m.seats[seat]!.token)}`);
 
   /** Finds the game and the AI seat a call acts for. */
   const resolve = async (args: { game_id?: string; seat?: string }): Promise<{ id: string; match: Match; seat: Seat } | { error: string }> => {
     const token = ctx.mode === "seat" ? ctx.token : args.seat?.trim() || undefined;
+    if (ctx.mode === "play" && !token) return { error: 'Pass your seat code as "seat" in every call. It is in the message from the room\'s host and looks like "<room>-<32 hex digits>".' };
     let id = token ? gameOfToken(token) : args.game_id?.trim();
-    if (token && !id) return { error: "That seat token is not valid." };
+    if (token && !id) return { error: "That seat code is not valid. Check that you copied all of it." };
     if (!id) {
       const [latest] = await lobbyOf(env).list(1, false);
       if (!latest) return { error: "No active game. Start one with new_game." };
@@ -61,11 +77,14 @@ export function buildMcpServer(env: Env, origin: string, ctx: McpContext): McpSe
     game_id: z
       .string()
       .optional()
-      .describe(owner ? "Game id. Omit to use the most recently active unfinished game." : "Ignored: this connector is bound to one seat."),
-    seat: z
-      .string()
-      .optional()
-      .describe(owner ? "Your seat token. Needed only when the game has more than one AI seat." : "Ignored: this connector is bound to one seat."),
+      .describe(owner ? "Game id. Omit to use the most recently active unfinished game." : "Ignored: the seat decides the game."),
+    seat:
+      ctx.mode === "play"
+        ? z.string().describe('Required: the seat code from the host\'s message, e.g. "ab12cd34ef56-0123456789abcdef0123456789abcdef".')
+        : z
+            .string()
+            .optional()
+            .describe(owner ? "Your seat token. Needed only when the game has more than one AI seat." : "Ignored: this connector is bound to one seat."),
   };
 
   const act = async (args: { game_id?: string; seat?: string }, actions: MatchAction[]) => {
@@ -179,7 +198,7 @@ export function buildMcpServer(env: Env, origin: string, ctx: McpContext): McpSe
     async (args) => {
       const g = await resolve(args);
       if ("error" in g) return text(g.error, true);
-      return text(await describe(g.match, g.seat));
+      return text((await practice(g.id, g.match, g.seat)) ?? (await describe(g.match, g.seat)));
     },
   );
 
@@ -195,6 +214,17 @@ export function buildMcpServer(env: Env, origin: string, ctx: McpContext): McpSe
       },
     },
     async ({ move, say, ...args }) => {
+      const g = await resolve(args);
+      if ("error" in g) return text(g.error, true);
+      if (g.match.benchPending?.seat === g.seat) {
+        const r = await roomOf(env, g.id).answerBench(g.seat, move);
+        if (r) {
+          const secs = (r.ms / 1000).toFixed(1);
+          return text(
+            `Timing test done: ${secs}s, move ${r.legal ? "legal" : `illegal (${r.message})`}. That was practice; the real game has not started. Call wait_for_opponent to wait for it.`,
+          );
+        }
+      }
       const actions: MatchAction[] = [{ type: "move", move }];
       if (say?.trim()) actions.push({ type: "say", text: say });
       return act(args, actions);
@@ -214,6 +244,8 @@ export function buildMcpServer(env: Env, origin: string, ctx: McpContext): McpSe
       if ("error" in g) return text(g.error, true);
       const { match, timedOut } = await roomOf(env, g.id).waitFor(g.seat, timeout_seconds * 1000);
       if (!match) return text("Game disappeared.", true);
+      const test = await practice(g.id, match, g.seat);
+      if (test) return text(test);
       const head = timedOut ? "Still waiting (timed out). Call wait_for_opponent again.\n\n" : "";
       return text(head + (await describe(match, g.seat)));
     },

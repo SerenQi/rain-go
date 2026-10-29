@@ -266,7 +266,10 @@ export function MatchScreen({
                 {[...recent].reverse().map((l, i) => (
                   <div key={match.log.length - i} className={`flex shrink-0 gap-1.5 truncate text-[0.82rem] leading-snug ${i === 0 ? "text-ink" : "text-muted"}`}>
                     <span className="shrink-0 text-faint">{l.seat === me ? "你" : names[l.seat]}</span>
-                    <span className="truncate">{l.move}</span>
+                    <span className="truncate">
+                      {l.move}
+                      {l.timeout && <span className="text-faint"> · 超时代走</span>}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -338,7 +341,7 @@ export function MatchScreen({
             ) : (
               <div className="chip min-w-0 flex-1 justify-center !text-ink">
                 <span className="truncate">
-                  {match.log.length ? `${match.log.at(-1)!.seat === me ? "你" : names[match.log.at(-1)!.seat]} · ${match.log.at(-1)!.move}` : mod.name.zh}
+                  {match.log.length ? `${match.log.at(-1)!.seat === me ? "你" : names[match.log.at(-1)!.seat]} · ${match.log.at(-1)!.move}${match.log.at(-1)!.timeout ? "（超时代走）" : ""}` : mod.name.zh}
                 </span>
               </div>
             )}

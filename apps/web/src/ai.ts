@@ -80,5 +80,14 @@ export async function askMove(c: ModelConfig, table: string, moveHelp: string, c
   }
 }
 
-export const mcpPrompt = (connector = "西窗") =>
-  `请使用已连接的 ${connector} MCP 座位玩这局游戏。先调用 get_state 查看状态，并把状态里的「Watch link」观战链接发给我（只读，只能看到你自己的牌）。轮到你时用 play 提交合法走法；否则调用 wait_for_opponent 等待，超时后继续等待，直到对局结束。房间没坐满时也请一直等待。`;
+/** The one player connector a person adds per site; each game's seat code goes in the prompt. */
+export const PLAY_CONNECTOR = "xichuang";
+export const playConnectorUrl = () => `${location.origin}/mcp/play`;
+export const playConnectorCommand = () => `claude mcp add --transport http ${PLAY_CONNECTOR} ${playConnectorUrl()}`;
+
+/**
+ * What to send the agent for one game. The seat code names the room and the seat, so the connector
+ * itself never decides which game is played and an old game cannot answer instead.
+ */
+export const mcpPrompt = (seatCode: string, room: string, game: string) =>
+  `请用「${PLAY_CONNECTOR}」MCP 连接器玩这局${game}（房间号 ${room}）。每次调用它的工具都把 seat 参数设为这一局的座位口令：${seatCode}（不要用以前对局的口令）。先调用 get_state，把状态里的「Watch link」观战链接发给我（只读，只能看到你自己的牌）。轮到你时用 play 提交合法走法；否则调用 wait_for_opponent 等待，超时后继续等待，直到对局结束。房间没坐满时也请一直等待。`;

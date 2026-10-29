@@ -1,6 +1,6 @@
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
-import { PROVIDERS, endpointFor, type Provider } from "../ai";
+import { PLAY_CONNECTOR, PROVIDERS, endpointFor, playConnectorCommand, playConnectorUrl, type Provider } from "../ai";
 import { api, prefs } from "../api";
 import { botKey, deleteBot, newBot, saveBot, useBots, type MyBot } from "../bots";
 import { AVATARS, AVATAR_IDS, Avatar } from "../components/Avatar";
@@ -56,7 +56,7 @@ export function Connect() {
             <div className="text-[1.35rem] font-bold lg:text-[1.9rem]">我的 Bot</div>
             <span className="text-sm text-muted">存在这台设备上</span>
           </div>
-          <p className="mt-1 text-sm text-muted">在房间的空座上放入你的 Bot。API Bot 由你这个页面调用模型代下；MCP Bot 会拿到座位的连接地址和提示词，交给你的 agent。</p>
+          <p className="mt-1 text-sm text-muted">在房间的空座上放入你的 Bot。API Bot 由你这个页面调用模型代下；MCP Bot 会拿到一段带座位口令的提示词，交给你的 agent。</p>
           <div className="mt-3 space-y-1.5">
             {bots.map((b) => (
               <button key={b.id} onClick={() => setEditing(b)} className="flex w-full items-center gap-3 rounded-2xl bg-white/35 px-3 py-2 text-left transition hover:bg-white/55">
@@ -74,6 +74,29 @@ export function Connect() {
               新建 Bot
             </button>
           </div>
+        </motion.section>
+
+        <motion.section {...card} className="glass shrink-0 px-5 py-4 lg:px-7 lg:py-6">
+          <div className="flex items-baseline justify-between">
+            <div className="text-[1.35rem] font-bold lg:text-[1.9rem]">玩家连接器</div>
+            <span className="text-sm text-muted">每个站点加一次</span>
+          </div>
+          <p className="mt-1 text-sm text-muted">
+            让你的 agent 坐进别人的房间用这个。加一次「{PLAY_CONNECTOR}」，以后每局只要把房主给的提示词（带座位口令）发给 agent，不用再加连接器，也不用重开会话。
+          </p>
+          <code
+            className="mt-2 block cursor-pointer overflow-x-auto whitespace-nowrap rounded-xl bg-black/80 px-3 py-2 font-mono text-xs text-white lg:text-sm"
+            onClick={() => copy(playConnectorCommand())}
+          >
+            {playConnectorCommand()}
+          </code>
+          <div className="mt-2 flex items-center gap-2">
+            <code className="field flex !min-h-[40px] items-center overflow-x-auto whitespace-nowrap font-mono text-sm">{playConnectorUrl()}</code>
+            <button className="btn btn-ink !min-h-[40px] !px-3.5" onClick={() => copy(playConnectorUrl())} aria-label="复制玩家连接器地址">
+              <IconCopy width={18} height={18} />
+            </button>
+          </div>
+          <p className="mt-2 text-xs text-faint">Claude Code 运行上面那行；Claude 网页或 App 在「设置 → 连接器」里添加这个地址。它本身不带任何口令，可以放心保存。</p>
         </motion.section>
 
         <motion.section {...card} className="glass shrink-0 px-5 py-4 lg:px-7 lg:py-6">
@@ -242,7 +265,7 @@ function BotEditor({ bot: initial, isNew, onClose, toast }: { bot: MyBot; isNew:
           </div>
         ) : (
           <p className="rounded-2xl bg-white/30 p-4 text-sm text-muted">
-            把这个 Bot 放进房间的空座后，会得到一段带座位地址的提示词。复制给你的 agent（Claude、OpenCode 等支持远程 MCP 的客户端），它就以这个名字和头像入座。
+            把这个 Bot 放进房间的空座后，会得到一段带座位口令的提示词。agent 加过一次「{PLAY_CONNECTOR}」玩家连接器（见「连接」页）后，把提示词发给它，它就以这个名字和头像入座。
           </p>
         )}
         {error && <p className="text-sm text-red-700">{error}</p>}

@@ -1,11 +1,12 @@
 import { GAMES, type MatchView, type Seat } from "@rain-go/engine";
 import { useEffect, useState, type ReactNode } from "react";
-import { mcpPrompt } from "../ai";
+import { PLAY_CONNECTOR, mcpPrompt, playConnectorCommand, playConnectorUrl } from "../ai";
 import { api, ApiError, prefs, type Invite } from "../api";
 import { setDriven, useBots, useDriven, type MyBot } from "../bots";
 import { navigate } from "../router";
 import { GLYPH } from "../pages/Lobby";
 import { Avatar } from "./Avatar";
+import { BenchPanel } from "./Bench";
 import { Sheet } from "./Chat";
 import { IconCopy } from "./icons";
 import { Header } from "./Shell";
@@ -25,8 +26,6 @@ export async function copyText(text: string, toast: (m: string) => void) {
   }
 }
 
-/** What an agent needs: add the seat's connector, then follow the prompt. */
-export const agentText = (link: string) => `先把这个地址添加为 MCP 连接器（只能玩这一个座位）：\n${link}\n\n然后：${mcpPrompt()}`;
 
 /** The room before the game starts: who sits where, invites, and the host's start button. */
 export function WaitingRoom({
@@ -36,6 +35,7 @@ export function WaitingRoom({
   chip,
   toast,
   extra,
+  watch,
 }: {
   match: MatchView;
   /** Set when this device created the room. */
@@ -46,6 +46,8 @@ export function WaitingRoom({
   toast: (m: string) => void;
   /** The "let AI play for me" control. */
   extra?: ReactNode;
+  /** Watching an AI seat through its read-only link: may time that AI. */
+  watch?: { seat: Seat; token: string };
 }) {
   const mod = GAMES[match.kind];
   const host = Boolean(hostToken);
@@ -131,6 +133,7 @@ export function WaitingRoom({
           <p className="px-1 text-sm text-muted">你没有上桌，开局后在旁边观战。想自己玩，点空座位上的「安排」→「我坐这里」。</p>
         )}
         {extra && <div className="glass px-4 py-3">{extra}</div>}
+        <BenchPanel match={match} hostToken={hostToken} watch={watch} />
         <button className="btn btn-glass w-full" onClick={() => navigate("/")}>
           回大厅
         </button>
@@ -296,10 +299,22 @@ function SeatSheet({
         )}
         {mode === "mcp" && link && (
           <>
-            <p className="text-sm text-muted">把下面这段整个复制给 agent（Claude、OpenCode 等支持远程 MCP 的客户端）。地址里带着座位口令，只发给要坐这个座位的人。</p>
-            <LinkBox text={agentText(link)} toast={toast} multiline />
-            <div className="text-xs text-faint">只要连接器地址：</div>
-            <LinkBox text={link} toast={toast} />
+            <p className="text-sm text-muted">把下面的内容发给要坐这个座位的人。座位口令能操作这个座位，别公开。</p>
+            <div className="text-sm font-semibold">① 没加过「{PLAY_CONNECTOR}」连接器的话，先加一次</div>
+            <p className="text-xs text-muted">
+              每个站点只加一次，以后每局都用它，加完开一个新会话。Claude Code 在终端运行下面这行；Claude 网页或 App 在「设置 → 连接器」里添加下面的地址；OpenCode 加到 opencode.json 的 mcp 里。
+            </p>
+            <LinkBox text={playConnectorCommand()} toast={toast} />
+            <LinkBox text={playConnectorUrl()} toast={toast} />
+            <div className="pt-1 text-sm font-semibold">② 把这段发给 agent（不用重开会话）</div>
+            <LinkBox text={mcpPrompt(tokenOfLink(link), match.id, GAMES[match.kind].name.zh)} toast={toast} multiline />
+            <details className="text-xs text-muted">
+              <summary className="cursor-pointer">备用：只玩这一个座位的专用地址</summary>
+              <p className="mt-1">有的客户端不方便每次传口令，可以把这个地址单独加成一个连接器。每局都要新加，用完记得删掉。</p>
+              <div className="mt-1">
+                <LinkBox text={link} toast={toast} />
+              </div>
+            </details>
           </>
         )}
         {mode !== "menu" && (

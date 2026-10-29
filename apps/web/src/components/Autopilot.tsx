@@ -62,6 +62,12 @@ export function useAutopilot(match: MatchView | null): Record<number, SeatState>
               return;
             } catch (e) {
               if (!(e instanceof ApiError) || e.status !== 409) throw e;
+              // The turn clock may have run out meanwhile and a rule bot moved for this seat.
+              const now = await api.getGame(match.id, d.token);
+              if (!now.status.waitingOn.includes(seat)) {
+                say(seat, { text: `${bot.name} 超时，机器人代走了一步` });
+                return;
+              }
               correction = `"${move}" was rejected: ${e.message}`;
             }
           }

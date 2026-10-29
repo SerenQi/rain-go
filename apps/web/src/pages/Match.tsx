@@ -1,3 +1,4 @@
+import { TURN_TIMEOUT_MS, type MatchView } from "@rain-go/engine";
 import { useEffect, useState } from "react";
 import { api, ApiError, prefs, type Invite } from "../api";
 import { AutopilotButton, useAutopilot } from "../components/Autopilot";
@@ -5,7 +6,7 @@ import { Sheet } from "../components/Chat";
 import { InviteSheet } from "../components/InviteSheet";
 import { MatchScreen } from "../components/MatchScreen";
 import { WaitingRoom } from "../components/Room";
-import { Header, hhmm } from "../components/Shell";
+import { Header, hhmm, useNow } from "../components/Shell";
 import { useToast } from "../components/Toast";
 import { navigate } from "../router";
 import { useMatch } from "../useMatch";
@@ -72,6 +73,7 @@ export function MatchPage({ id }: { id: string }) {
     <>
       <span className={`inline-block h-2 w-2 rounded-full ${live ? "bg-ink" : "bg-faint"}`} />
       {live ? `live · ${hhmm(syncedAt ?? Date.now())}` : "offline"}
+      <TurnClock match={match} />
     </>
   );
   const pilotLines = Object.entries(pilot).filter(([seat]) => Number(seat) !== match.me);
@@ -92,6 +94,7 @@ export function MatchPage({ id }: { id: string }) {
         {toast.node}
         <WaitingRoom
           match={readOnly ? { ...match, me: null } : match}
+          watch={readOnly && match.me !== null ? { seat: match.me, token: watchToken } : undefined}
           hostToken={prefs.hostToken(id)}
           onSeat={(t) => {
             prefs.setSeatToken(id, t);
@@ -157,4 +160,12 @@ export function MatchPage({ id }: { id: string }) {
       )}
     </>
   );
+}
+
+/** Seconds left in the current turn; a rule bot moves for the seat when it runs out. */
+function TurnClock({ match }: { match: MatchView }) {
+  const now = useNow(1000).getTime();
+  if (match.waiting || match.status.outcome) return null;
+  const left = Math.max(0, Math.ceil(((match.turnAt ?? match.updatedAt) + TURN_TIMEOUT_MS - now) / 1000));
+  return <span className={`ml-1 tabular-nums ${left <= 20 ? "font-semibold text-red-700" : ""}`} title="每步限时 120 秒，超时由规则机器人代走">· {left}s</span>;
 }

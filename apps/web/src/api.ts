@@ -128,6 +128,13 @@ export const api = {
   /** Host only, while the room waits: who sits in a seat, the host included (`host: true`). */
   setSeat: (id: string, hostToken: string, o: { seat: Seat; kind: SeatKind; name?: string; avatar?: string; joined?: boolean; host?: boolean }) =>
     request<{ match: MatchView; invites: Invite[] }>(`/api/games/${id}/seats`, { method: "POST", body: JSON.stringify(o), headers: { "x-host": hostToken } }),
+  /** Times the AI in an MCP seat on a practice position; the host or that seat's watcher may ask. */
+  bench: (id: string, seat: Seat, auth: { host?: string; watch?: string }) =>
+    request<{ ok: true }>(`/api/games/${id}/bench`, {
+      method: "POST",
+      body: JSON.stringify({ seat }),
+      headers: { ...(auth.host ? { "x-host": auth.host } : {}), ...(auth.watch ? { "x-watch": auth.watch } : {}) },
+    }),
   startRoom: (id: string, hostToken: string) => request<{ match: MatchView }>(`/api/games/${id}/start`, { method: "POST", headers: { "x-host": hostToken } }),
   /** Every seat's invite link, for the room's host. */
   roomInvites: (id: string, hostToken: string) => request<{ invites: Invite[]; tokens: (string | null)[] }>(`/api/games/${id}/invites`, { headers: { "x-host": hostToken } }),

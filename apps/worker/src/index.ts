@@ -136,6 +136,22 @@ app.post("/api/games/:id/seats", async (c) => {
   return c.json({ match: viewMatch(res.match, res.match.host ?? null), invites: invitesOf(res.match, new URL(c.req.url).origin) });
 });
 
+/** Host, or the holder of that seat's watch link: time the AI in an MCP seat on a late practice position. */
+app.post("/api/games/:id/bench", async (c) => {
+  const id = c.req.param("id");
+  if (!isGameId(id)) return c.json({ error: "bad_id" }, 400);
+  const room = roomOf(c.env, id);
+  const match = await room.get();
+  if (!match) return c.json({ error: "not_found" }, 404);
+  const body = await c.req.json<{ seat?: unknown }>().catch(() => ({}) as { seat?: unknown });
+  if (typeof body.seat !== "number") return c.json({ error: "bad_seat" }, 400);
+  const watch = c.req.header("x-watch");
+  const watcher = watch ? (await seatByWatch(match, watch)) === body.seat : false;
+  if (!watcher && !isHost(match, c.req.raw)) return c.json({ error: "not_allowed", message: "只有房主或这个座位的主人能测" }, 403);
+  const res = await room.requestBench(body.seat);
+  return res.ok ? c.json({ ok: true }) : c.json(res, 409);
+});
+
 app.post("/api/games/:id/start", async (c) => {
   const g = await hostRoom(c.env, c.req.param("id"), c.req.raw);
   if ("error" in g) return g.error;
@@ -239,6 +255,8 @@ app.all("/mcp/seat/:seatToken", (c) => {
   if (!gameOfToken(token)) return unauthorized();
   return handleMcp(c.req.raw, c.env, c.env.PUBLIC_ORIGIN ?? new URL(c.req.url).origin, { mode: "seat", token });
 });
+/** One stable connector per site for players: every call names its seat with the seat code. */
+app.all("/mcp/play", (c) => handleMcp(c.req.raw, c.env, c.env.PUBLIC_ORIGIN ?? new URL(c.req.url).origin, { mode: "play" }));
 app.all("/mcp/:token", (c) => mcp(c.req.raw, c.env, c.req.param("token")));
 
 app.all("/api/*", (c) => c.json({ error: "not_found" }, 404));

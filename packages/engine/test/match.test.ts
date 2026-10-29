@@ -10,6 +10,10 @@ import {
   seatByToken,
   setSeatKind,
   startMatch,
+  timeoutMatch,
+  turnDeadline,
+  practiceMatch,
+  TURN_TIMEOUT_MS,
   shuffled,
   statusOf,
   viewMatch,
@@ -254,6 +258,10 @@ describe("waiting rooms", () => {
     const mine = setSeatKind(m, 2, "human", "new3", 3, { name: "小鲸", joined: true });
     expect(mine.ok && mine.match.seats[2]).toMatchObject({ kind: "human", joined: true, name: "小鲸" });
     expect(setSeatKind(joinSeat(m, 1, 1), 1, "bot", "x", 1)).toMatchObject({ ok: false, error: "taken" });
+    // Filling seats back to front must not give two bots the same name.
+    const back = setSeatKind(m, 2, "bot", "b2", 1);
+    const front = back.ok ? setSeatKind(back.match, 1, "bot", "b1", 2) : back;
+    expect(front.ok && new Set(front.match.seats.slice(1).map((s) => s.name)).size).toBe(2);
   });
 
   it("lets the host give their own seat to an AI and run the room from outside, or sit back down", () => {
@@ -285,5 +293,47 @@ describe("waiting rooms", () => {
 
   it("keeps tables created without a host token playing at once", () => {
     expect(newMatch("gomoku").waiting).toBeUndefined();
+  });
+});
+
+describe("turn clock", () => {
+  it("lets the rule bot move for a seat that runs out of time, and restarts the clock", () => {
+    const m = newMatch("gomoku", "human", "human");
+    expect(turnDeadline(m)).toBe(TURN_TIMEOUT_MS);
+    expect(timeoutMatch(m, TURN_TIMEOUT_MS - 1)).toBeNull();
+    const late = timeoutMatch(m, TURN_TIMEOUT_MS);
+    expect(late).not.toBeNull();
+    expect(late!.log).toHaveLength(1);
+    expect(late!.log[0]).toMatchObject({ seat: 0, timeout: true });
+    expect(late!.turnAt).toBe(TURN_TIMEOUT_MS);
+    expect(statusOf(late!).waitingOn).toEqual([1]);
+    const moved = applyMatchAction(late!, 1, { type: "move", move: "A1" }, TURN_TIMEOUT_MS + 5);
+    expect(moved.ok && moved.match.turnAt).toBe(TURN_TIMEOUT_MS + 5);
+  });
+
+  it("does not run while a room waits or after the game ends", () => {
+    const room = createMatch({ id: "r", kind: "go", seats: [{ kind: "human", token: "a", joined: true }, { kind: "human", token: "b", joined: true }], seed: 1, now: 0, hostToken: "h" });
+    expect(turnDeadline(room)).toBeNull();
+    expect(timeoutMatch(room, 10 * TURN_TIMEOUT_MS)).toBeNull();
+    const started = startMatch(room, 50);
+    expect(started.ok && turnDeadline(started.match)).toBe(50 + TURN_TIMEOUT_MS);
+    const over = applyMatchAction(newMatch("gomoku"), 0, { type: "resign" }, 1);
+    expect(over.ok && turnDeadline(over.match)).toBeNull();
+  });
+});
+
+describe("practice positions", () => {
+  it("finds a late, unfinished position where the seat must act, for every game", () => {
+    for (const g of Object.values(GAMES).filter((x) => x.ready)) {
+      const n = g.players.default;
+      const table = { id: "p", kind: g.kind, options: undefined, seats: seats(...Array<SeatKind>(n).fill("human")).map((s) => ({ ...s, joined: true, name: s.name ?? "x" })) };
+      const seat = n - 1;
+      const p = practiceMatch(table, seat, 11);
+      expect(p, g.kind).not.toBeNull();
+      expect(statusOf(p!).outcome, g.kind).toBeNull();
+      expect(statusOf(p!).waitingOn, g.kind).toContain(seat);
+      expect(p!.log.length, g.kind).toBeGreaterThan(5);
+      expect(describeMatch(p!, seat)).toContain("YOUR TURN");
+    }
   });
 });

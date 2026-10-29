@@ -21,7 +21,12 @@ export interface LogEntry {
   seat: Seat;
   move: string;
   t: number;
+  /** The seat ran out of time and its rule bot moved for it. */
+  timeout?: true;
 }
+
+/** How long a seat may take over one turn before its rule bot moves for it. */
+export const TURN_TIMEOUT_MS = 120_000;
 
 export interface MatchChat {
   seat: Seat;
@@ -48,6 +53,14 @@ export interface Match {
   hostToken?: string;
   /** The seat the host sits in, if they play. */
   host?: Seat;
+  /** Game options as chosen at creation, e.g. {"size": "19"}. */
+  options?: Record<string, string>;
+  /** When the current turn began; see TURN_TIMEOUT_MS. */
+  turnAt?: number;
+  /** Timing tests answered over MCP while the room waited, per seat. `ms` null means it timed out. */
+  bench?: Record<number, { ms: number | null; legal: boolean; at: number }>;
+  /** A timing test in progress: the AI in `seat` has been sent a practice position since `since`. */
+  benchPending?: { seat: Seat; since: number };
   log: LogEntry[];
   chat: MatchChat[];
 }
@@ -133,9 +146,10 @@ export function createMatch(o: NewMatchOptions): Match {
     joined: s.kind === "bot" || Boolean(s.joined),
     ...(cleanAvatar(s.avatar) ? { avatar: cleanAvatar(s.avatar) } : {}),
   }));
-  const state = mod.create({ seed: o.seed >>> 0, players: n, options: cleanOptions(o.kind, o.options) });
+  const options = cleanOptions(o.kind, o.options);
+  const state = mod.create({ seed: o.seed >>> 0, players: n, options });
   const room = o.hostToken ? { waiting: true, hostToken: o.hostToken, ...(o.host !== undefined && seats[o.host] ? { host: o.host } : {}) } : {};
-  const m: Match = { id: o.id, kind: o.kind, ...(o.kind === "gomoku" && o.informationMode === "equal" ? { informationMode: "equal" as const } : {}), createdAt: o.now, updatedAt: o.now, version: 1, seats, state, ...room, log: [], chat: [] };
+  const m: Match = { id: o.id, kind: o.kind, ...(o.kind === "gomoku" && o.informationMode === "equal" ? { informationMode: "equal" as const } : {}), createdAt: o.now, updatedAt: o.now, version: 1, seats, state, options, ...room, ...(o.hostToken ? {} : { turnAt: o.now }), log: [], chat: [] };
   return m.waiting ? m : autoplay(m, o.now);
 }
 
@@ -193,7 +207,7 @@ export function applyMatchAction(m: Match, seat: Seat, action: MatchAction, now:
       const res = GAMES[m.kind].apply(m.state, seat, move);
       if (!res.ok) return fail("illegal", res.error);
       const log = [...m.log, { seat, move: res.log ?? move, t: now }].slice(-500);
-      return { ok: true, match: autoplay(bump({ state: res.state, log }), now) };
+      return { ok: true, match: autoplay(bump({ state: res.state, log, turnAt: now }), now) };
     }
     case "resign": {
       if (m.waiting) return fail("not_started", "还没开局");
@@ -223,7 +237,72 @@ export function startMatch(m: Match, now: number): MatchResult {
   if (open) return fail("not_full", `还差 ${open} 人`);
   // Same rule as creating a table: bots alone would play out the whole game for nobody.
   if (m.seats.every((s) => s.kind === "bot")) return fail("bots_only", "至少要有一个真人或 AI");
-  return { ok: true, match: autoplay({ ...m, waiting: false, updatedAt: now, version: m.version + 1 }, now) };
+  const { benchPending: _p, ...rest } = m;
+  return { ok: true, match: autoplay({ ...rest, waiting: false, turnAt: now, updatedAt: now, version: m.version + 1 }, now) };
+}
+
+/** When the current turn runs out, or null when nothing is on the clock. */
+export function turnDeadline(m: Match): number | null {
+  if (m.waiting || statusOf(m).outcome) return null;
+  return (m.turnAt ?? m.updatedAt) + TURN_TIMEOUT_MS;
+}
+
+/** Lets each rule bot move for seats whose turn has run out, or returns null when none has. */
+export function timeoutMatch(m: Match, now: number): Match | null {
+  const deadline = turnDeadline(m);
+  const mod = GAMES[m.kind];
+  if (deadline === null || now < deadline || !mod.bot) return null;
+  let state = m.state;
+  const log = [...m.log];
+  for (const seat of statusOf(m).waitingOn) {
+    const move = mod.bot(state, seat);
+    const res = mod.apply(state, seat, move);
+    if (!res.ok) continue;
+    state = res.state;
+    log.push({ seat, move: res.log ?? move, t: now, timeout: true });
+  }
+  if (state === m.state) return null;
+  return autoplay({ ...m, state, log: log.slice(-500), turnAt: now, updatedAt: now, version: m.version + 1 }, now);
+}
+
+/**
+ * A realistic position near the end of a game for timing a model: the table's own game, options and
+ * names, played by rule bots from a fresh deal to about 85% of a full game, stopping where `seat` must act.
+ */
+export function practiceMatch(m: Pick<Match, "id" | "kind" | "seats" | "options">, seat: Seat, seed: number): Match | null {
+  const mod = GAMES[m.kind];
+  if (!mod.bot || !m.seats[seat]) return null;
+  const players = m.seats.length;
+  const start = mod.create({ seed: seed >>> 0, players, options: cleanOptions(m.kind, m.options) });
+  const states = [start];
+  const log: LogEntry[] = [];
+  for (let state = start, guard = 0; guard < 3000; guard++) {
+    if (mod.outcome(state)) break;
+    const who = mod.waitingOn(state)[0];
+    if (who === undefined) break;
+    const move = mod.bot(state, who);
+    const res = mod.apply(state, who, move);
+    if (!res.ok) break;
+    state = res.state;
+    states.push(state);
+    log.push({ seat: who, move: res.log ?? move, t: 0 });
+  }
+  for (let i = Math.floor((states.length - 1) * 0.85); i >= 0; i--) {
+    if (!mod.outcome(states[i]!) && mod.waitingOn(states[i]!).includes(seat)) {
+      return {
+        id: m.id,
+        kind: m.kind,
+        createdAt: 0,
+        updatedAt: 0,
+        version: 1,
+        seats: m.seats.map((s) => ({ ...s, token: "", joined: true })),
+        state: states[i]!,
+        log: log.slice(0, i).slice(-500),
+        chat: [],
+      };
+    }
+  }
+  return null;
 }
 
 /**
@@ -254,7 +333,7 @@ export function setSeatKind(
   const avatar = cleanAvatar(profile.avatar);
   const next: SeatInfo = {
     kind,
-    name: cleanName(profile.name) ?? defaultName(kind, kinds, seat),
+    name: cleanName(profile.name) ?? freeName(kind, kinds, seat, m.seats.filter((_, i) => i !== seat).map((x) => x.name)),
     token,
     joined: kind === "bot" || (kind === "human" && (profile.joined === true || sitting)),
     ...(avatar ? { avatar } : {}),
@@ -264,6 +343,14 @@ export function setSeatKind(
   const { host: _old, ...rest } = m;
   const host = sitting ? seat : m.host === seat ? undefined : m.host;
   return { ok: true, match: { ...rest, ...(host !== undefined ? { host } : {}), seats, updatedAt: now, version: m.version + 1 } };
+}
+
+/** A default name that no other seat has; seats change one at a time, so position alone can repeat one. */
+function freeName(kind: SeatKind, kinds: { kind: SeatKind }[], seat: Seat, taken: string[]): string {
+  const name = defaultName(kind, kinds, seat);
+  if (!taken.includes(name)) return name;
+  if (kind === "bot") return BOT_NAMES.find((n) => !taken.includes(n)) ?? name;
+  for (let n = 2; ; n++) if (!taken.includes(`${name} ${n}`)) return `${name} ${n}`;
 }
 
 /** Avatar ids are short preset names, e.g. "drop" or "whale". */
