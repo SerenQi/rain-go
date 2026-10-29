@@ -1,4 +1,4 @@
-import { GAMES, type MatchView, type Seat } from "@rain-go/engine";
+import { GAMES, TURN_TIMEOUT_MS, type MatchView, type Seat } from "@rain-go/engine";
 import { useEffect, useState, type ReactNode } from "react";
 import { PLAY_CONNECTOR, mcpPrompt, playConnectorCommand, playConnectorUrl } from "../ai";
 import { api, ApiError, prefs, type Invite } from "../api";
@@ -85,56 +85,69 @@ export function WaitingRoom({
   return (
     <>
       <Header status={chip} />
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pb-4 lg:mx-auto lg:max-w-[560px] lg:overflow-visible">
-        <section className="glass px-5 py-5 lg:px-7">
-          <div className="flex items-center gap-3">
-            <span className="grid h-12 w-12 place-items-center rounded-2xl bg-ink text-[1.4rem] text-white">{GLYPH[match.kind]}</span>
-            <div className="min-w-0">
-              <h1 className="text-[1.5rem] font-bold leading-tight">{mod.name.zh} · 房间</h1>
-              <p className="text-sm text-muted">{open ? `等人入座 · 还差 ${open} 人` : host ? "人齐了，可以开始" : "人齐了，等房主开始"}</p>
-            </div>
-          </div>
-        </section>
-
-        <section className="glass px-3 py-3 lg:px-5">
-          {match.seats.map((s, i) => {
-            const canEdit = host && (!s.joined || s.kind === "bot" || Boolean(driven[i]) || i === match.host);
-            return (
-              <div key={i} className="flex items-center gap-3 rounded-2xl px-2 py-2.5">
-                <Avatar id={s.avatar} kind={s.kind} size={44} className={s.joined ? "" : "opacity-40"} />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-semibold">
-                    {s.joined || s.kind === "ai" ? s.name : "空位"}
-                    <span className="ml-2 text-xs font-normal text-faint">{match.labels[i] || `座位 ${i + 1}`}</span>
-                  </div>
-                  <div className="truncate text-sm text-muted">{status(i)}</div>
-                </div>
-                {canEdit && (
-                  <button className="btn btn-glass !min-h-[36px] shrink-0 !px-3 text-sm" onClick={() => setEditing(i)}>
-                    {i === match.host ? "让出" : s.joined ? "更换" : "安排"}
-                  </button>
-                )}
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pb-4 lg:mx-auto lg:grid lg:max-w-[960px] lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start lg:gap-5 lg:space-y-0 lg:overflow-visible">
+        <div className="space-y-3 lg:space-y-4">
+          <section className="glass px-5 py-5 lg:px-7">
+            <div className="flex items-center gap-3">
+              <span className="grid h-12 w-12 place-items-center rounded-2xl bg-ink text-[1.4rem] text-white">{GLYPH[match.kind]}</span>
+              <div className="min-w-0">
+                <h1 className="text-[1.5rem] font-bold leading-tight">{mod.name.zh} · 房间</h1>
+                <p className="text-sm text-muted">{open ? `等人入座 · 还差 ${open} 人` : host ? "人齐了，可以开始" : "人齐了，等房主开始"}</p>
               </div>
-            );
-          })}
-        </section>
+            </div>
+          </section>
 
-        {host ? (
-          <button className="btn btn-ink w-full !min-h-[50px]" disabled={busy || open > 0} onClick={start}>
-            {open ? `还差 ${open} 人才能开始` : "开始游戏"}
+          <section className="glass px-3 py-3 lg:px-5">
+            {match.seats.map((s, i) => {
+              const canEdit = host && (!s.joined || s.kind === "bot" || Boolean(driven[i]) || i === match.host);
+              return (
+                <div key={i} className="flex items-center gap-3 rounded-2xl px-2 py-2.5">
+                  <Avatar id={s.avatar} kind={s.kind} size={44} className={s.joined ? "" : "opacity-40"} />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-semibold">
+                      {s.joined || s.kind === "ai" ? s.name : "空位"}
+                      <span className="ml-2 text-xs font-normal text-faint">{match.labels[i] || `座位 ${i + 1}`}</span>
+                    </div>
+                    <div className="truncate text-sm text-muted">{status(i)}</div>
+                  </div>
+                  {canEdit && (
+                    <button className="btn btn-glass !min-h-[36px] shrink-0 !px-3 text-sm" onClick={() => setEditing(i)}>
+                      {i === match.host ? "让出" : s.joined ? "更换" : "安排"}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </section>
+
+          {host ? (
+            <button className="btn btn-ink w-full !min-h-[50px]" disabled={busy || open > 0} onClick={start}>
+              {open ? `还差 ${open} 人才能开始` : "开始游戏"}
+            </button>
+          ) : (
+            <div className="glass px-5 py-4 text-sm text-muted">
+              {match.me === null ? "你在观战。房主开始后这里会显示牌桌。" : "已入座。等房主开始，也可以先点「让 AI 帮我下」交给你的 API Bot。"}
+            </div>
+          )}
+          {host && match.host === undefined && (
+            <p className="px-1 text-sm text-muted">你没有上桌，开局后在旁边观战。想自己玩，点空座位上的「安排」→「我坐这里」。</p>
+          )}
+        </div>
+        <aside className="space-y-3 lg:sticky lg:top-6">
+          <section className="glass hidden px-6 py-5 text-sm text-muted lg:block">
+            <div className="mb-2 text-[1.1rem] font-semibold text-ink">怎么坐满</div>
+            <ul className="space-y-2">
+              <li className="stat-bar">邀请好友：发网页链接自己玩，或发 MCP 提示词给他的 agent。</li>
+              <li className="stat-bar">我的 Bot：在「连接」里建好的 API 或 MCP Bot。</li>
+              {mod.bot && <li className="stat-bar">机器人：规则机器人，立刻入座。</li>}
+            </ul>
+            <p className="mt-3">每步限时 {TURN_TIMEOUT_MS / 1000} 秒，超时由规则机器人代走。</p>
+          </section>
+          {extra && <div className="glass px-4 py-3">{extra}</div>}
+          <button className="btn btn-glass w-full" onClick={() => navigate("/")}>
+            回大厅
           </button>
-        ) : (
-          <div className="glass px-5 py-4 text-sm text-muted">
-            {match.me === null ? "你在观战。房主开始后这里会显示牌桌。" : "已入座。等房主开始，你可以先在下面设置让 AI 帮你下。"}
-          </div>
-        )}
-        {host && match.host === undefined && (
-          <p className="px-1 text-sm text-muted">你没有上桌，开局后在旁边观战。想自己玩，点空座位上的「安排」→「我坐这里」。</p>
-        )}
-        {extra && <div className="glass px-4 py-3">{extra}</div>}
-        <button className="btn btn-glass w-full" onClick={() => navigate("/")}>
-          回大厅
-        </button>
+        </aside>
       </div>
       {editing !== null && invites && (
         <SeatSheet

@@ -207,7 +207,7 @@ function TimeoutNotice({ match, readOnly }: { match: MatchView; readOnly: boolea
     }
   };
   return (
-    <div role="alert" className="fixed inset-x-0 bottom-[calc(92px+env(safe-area-inset-bottom))] z-20 px-4">
+    <div role="alert" className="fixed inset-x-0 bottom-[calc(92px+env(safe-area-inset-bottom))] z-20 px-4 lg:inset-x-auto lg:right-8 lg:bottom-8 lg:w-[440px] lg:px-0">
       <div className="glass mx-auto flex max-w-[520px] items-start gap-3 !bg-white/80 px-4 py-3">
         <span className="mt-0.5 text-lg leading-none">⏱</span>
         <p className="min-w-0 flex-1 text-sm">{text}</p>

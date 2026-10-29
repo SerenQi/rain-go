@@ -12,7 +12,7 @@ import "./styles.css";
 function App() {
   const route = useRoute();
   return (
-    <Shell route={route} wide={route.name === "game" || route.name === "sandbox"}>
+    <Shell route={route}>
       {route.name === "game" ? (
         <MatchPage key={route.id} id={route.id} />
       ) : route.name === "sandbox" ? (

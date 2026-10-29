@@ -46,8 +46,8 @@ export function Connect() {
     <>
       {toast.node}
       <Header status="MCP" />
-      <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto lg:block lg:space-y-5 lg:overflow-visible">
-        <motion.div {...card} className="[@media(max-height:700px)]:hidden lg:!block">
+      <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto lg:block lg:space-y-5 lg:overflow-visible xl:grid xl:grid-cols-2 xl:items-start xl:gap-5 xl:space-y-0">
+        <motion.div {...card} className="[@media(max-height:700px)]:hidden lg:!block xl:col-span-2">
           <Pill title="Connect" subtitle="设置你的 Bot，或把西窗接到你的 AI" />
         </motion.div>
 
@@ -133,12 +133,12 @@ export function Connect() {
           </ol>
         </motion.section>
 
-        <motion.details {...card} className="glass shrink-0 px-5 py-3.5 lg:px-7 lg:py-6" open={wide}>
+        <motion.details {...card} className="glass shrink-0 px-5 py-3.5 lg:px-7 lg:py-6 xl:col-span-2" open={wide}>
           <summary className="flex cursor-pointer list-none items-baseline justify-between">
             <span className="text-[1.35rem] font-bold lg:text-[1.9rem]">Tools</span>
             <span className="text-sm text-muted">{TOOLS.length} 个工具 · 点开查看</span>
           </summary>
-          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:gap-3">
+          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:gap-3 xl:grid-cols-3">
             {TOOLS.map(([name, desc]) => (
               <div key={name} className="stat-bar">
                 <div className="font-mono text-xs lg:text-sm">{name}</div>

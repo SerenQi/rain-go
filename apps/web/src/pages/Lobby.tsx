@@ -79,9 +79,9 @@ export function Lobby() {
     <>
       {toast.node}
       <Header status={`sync · ${syncedAt ? hhmm(syncedAt) : "--:--"}`} />
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pb-4 lg:space-y-5 lg:overflow-visible">
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pb-4 lg:space-y-5 lg:overflow-visible xl:grid xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start xl:gap-5 xl:space-y-0">
         {needToken && (
-          <motion.section {...card} className="glass px-5 py-4 lg:px-7 lg:py-6">
+          <motion.section {...card} className="glass px-5 py-4 lg:px-7 lg:py-6 xl:col-span-2">
             <div className="text-[1.2rem] font-semibold lg:text-[1.5rem]">访问口令</div>
             <p className="mt-0.5 text-sm text-muted lg:text-base">这个站点设了口令。填一次，这台设备会记住。</p>
             <form
@@ -109,7 +109,7 @@ export function Lobby() {
             return (
               <div key={family} className="mt-4 lg:mt-6">
                 <div className="mb-2 text-sm text-muted">{title}</div>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 lg:gap-3">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-[repeat(auto-fill,minmax(168px,1fr))] lg:gap-3">
                   {list.map((g) => (
                     <button
                       key={g.kind}
@@ -145,8 +145,8 @@ export function Lobby() {
           </div>
         </motion.section>
 
-        {(games?.length ?? 0) > 0 && (
-          <motion.section {...card} className="glass px-5 py-3 lg:px-7 lg:py-6">
+        {(games?.length ?? 0) > 0 ? (
+          <motion.section {...card} className="glass px-5 py-3 lg:px-7 lg:py-6 xl:!sticky xl:top-6 xl:flex xl:max-h-[calc(100dvh-48px)] xl:flex-col xl:px-6">
             <div className="flex items-baseline justify-between">
               <div className="text-[1.25rem] font-bold lg:text-[1.9rem]">我的对局</div>
               <div className="text-sm text-muted">
@@ -154,11 +154,18 @@ export function Lobby() {
               </div>
             </div>
             <div className="divider my-2 lg:my-4" />
-            <div className="space-y-1 lg:space-y-2">
+            <div className="space-y-1 lg:space-y-2 xl:-mr-2 xl:min-h-0 xl:overflow-y-auto xl:pr-2">
               {[...active, ...done.slice(0, 20)].map((g) => (
                 <GameRow key={g.id} g={g} />
               ))}
             </div>
+          </motion.section>
+        ) : (
+          // Desktop keeps the right column, so say what will show up there.
+          <motion.section {...card} className="glass hidden px-6 py-6 xl:!sticky xl:top-6 xl:block">
+            <div className="text-[1.9rem] font-bold">我的对局</div>
+            <div className="divider my-4" />
+            <p className="text-muted">还没有对局。在左边选一个玩法开房间，进行中和下完的对局都会列在这里。</p>
           </motion.section>
         )}
       </div>

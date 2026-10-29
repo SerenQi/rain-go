@@ -225,7 +225,7 @@ export function Arena() {
 
   return <>
     <Header status="五子棋 · 新手指引" />
-    <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pb-6 lg:overflow-visible">
+    <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pb-6 lg:mx-auto lg:max-w-[760px] lg:overflow-visible">
       {step === "home" && <section className="glass space-y-4 px-5 py-6 lg:px-7">
         <div><p className="text-sm text-muted">西窗 · 五子棋</p><h1 className="mt-1 text-3xl font-bold">一起下一局</h1><p className="mt-2 text-sm text-muted">自己下棋，邀请朋友，或者让 AI 来对弈。跟着步骤设置就能开始。</p></div>
         <button className="btn btn-ink w-full" onClick={() => next("host-self")}>我要创建对局 →</button>
