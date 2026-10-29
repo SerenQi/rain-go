@@ -3,3 +3,4 @@ dist
 .wrangler
 .dev.vars
 *.log
+.production-access-token

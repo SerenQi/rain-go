@@ -3,10 +3,14 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { CfWorkerJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/cfworker";
 import { GAMES, describeMatch, openSeat, readyGames, seatByToken, type Match, type MatchAction, type Seat } from "@rain-go/engine";
 import { z } from "zod";
-import { gameOfToken, isGameId, lobbyOf, newGameId, roomOf, type Env } from "./env";
+import { gameOfToken, isGameId, lobbyOf, newGameId, roomOf, watchTokenOf, type Env } from "./env";
 import { buildSeats, invitesOf } from "./seats";
 
-export type McpContext = { mode: "owner" } | { mode: "seat"; token: string };
+/**
+ * "owner" can start and list games; "seat" is bound to one seat by its URL; "play" is one stable
+ * connector per site that plays whichever seat the `seat` code in each call names.
+ */
+export type McpContext = { mode: "owner" } | { mode: "seat"; token: string } | { mode: "play" };
 
 const INSTRUCTIONS = `West Window (西窗): board, card and dice games for humans, AIs and bots around one table. Humans play on a live web page; AIs play through these tools.
 
@@ -17,7 +21,9 @@ Flow:
 4. get_state shows the table at any time. Card games only show your own hand.
 If a game has more than one AI seat, pass your seat token as "seat" in every call. You may talk to the table with the "say" argument of play or with say; keep it short and warm.`;
 
-const SEAT_INSTRUCTIONS = `West Window (西窗): this connector plays exactly one seat at one game table. Call get_state, then play on your turn or wait_for_opponent otherwise. The state repeats the move syntax.`;
+const SEAT_INSTRUCTIONS = `West Window (西窗): this connector plays exactly one seat at one game table. Call get_state, then play on your turn or wait_for_opponent otherwise. The state repeats the move syntax. The state also has a read-only watch link for your seat: give it to your person once.`;
+
+const PLAY_INSTRUCTIONS = `West Window (西窗): this connector plays the seat whose seat code you pass as "seat" in EVERY call. Each game's host sends a seat code (it looks like "<room>-<32 hex digits>"), so this one connector serves every game; never reuse a seat code from an earlier game. Call get_state, then play on your turn or wait_for_opponent otherwise. The state repeats the move syntax and has a read-only watch link for your seat: give it to your person once.`;
 
 const text = (t: string, isError = false) => ({ content: [{ type: "text" as const, text: t }], isError });
 
@@ -25,26 +31,31 @@ export function buildMcpServer(env: Env, origin: string, ctx: McpContext): McpSe
   const owner = ctx.mode === "owner";
   const server = new McpServer(
     { name: "rain-go", version: "0.3.0" },
-    { instructions: owner ? INSTRUCTIONS : SEAT_INSTRUCTIONS, jsonSchemaValidator: new CfWorkerJsonSchemaValidator() },
+    { instructions: owner ? INSTRUCTIONS : ctx.mode === "play" ? PLAY_INSTRUCTIONS : SEAT_INSTRUCTIONS, jsonSchemaValidator: new CfWorkerJsonSchemaValidator() },
   );
   const pageOf = (id: string) => `${origin}/g/${id}`;
+  /** The state for an AI seat, with the read-only link to that seat's own view. */
+  const describe = async (m: Match, seat: Seat) => describeMatch(m, seat, `${pageOf(m.id)}?w=${await watchTokenOf(m.seats[seat]!.token)}`);
 
   /** Finds the game and the AI seat a call acts for. */
   const resolve = async (args: { game_id?: string; seat?: string }): Promise<{ id: string; match: Match; seat: Seat } | { error: string }> => {
     const token = ctx.mode === "seat" ? ctx.token : args.seat?.trim() || undefined;
+    if (ctx.mode === "play" && !token) return { error: 'Pass your seat code as "seat" in every call. It is in the message from the room\'s host and looks like "<room>-<32 hex digits>".' };
     let id = token ? gameOfToken(token) : args.game_id?.trim();
-    if (token && !id) return { error: "That seat token is not valid." };
+    if (token && !id) return { error: "That seat code is not valid. Check that you copied all of it." };
     if (!id) {
       const [latest] = await lobbyOf(env).list(1, false);
       if (!latest) return { error: "No active game. Start one with new_game." };
       id = latest.id;
     }
     if (!isGameId(id)) return { error: `Invalid game id "${id}".` };
-    const match = await roomOf(env, id).get();
+    let match = await roomOf(env, id).get();
     if (!match) return { error: `Game ${id} not found.` };
     if (token) {
       const seat = seatByToken(match, token);
       if (seat === null || match.seats[seat]!.kind !== "ai") return { error: "That seat token does not belong to an AI seat in this game." };
+      // Connecting is what takes the seat, so a waiting room sees the AI arrive before its first move.
+      if (!match.seats[seat]!.joined) match = (await roomOf(env, id).join(seat)) ?? match;
       return { id, match, seat };
     }
     const aiSeats = match.seats.map((s, i) => (s.kind === "ai" ? i : -1)).filter((i) => i >= 0);
@@ -57,11 +68,14 @@ export function buildMcpServer(env: Env, origin: string, ctx: McpContext): McpSe
     game_id: z
       .string()
       .optional()
-      .describe(owner ? "Game id. Omit to use the most recently active unfinished game." : "Ignored: this connector is bound to one seat."),
-    seat: z
-      .string()
-      .optional()
-      .describe(owner ? "Your seat token. Needed only when the game has more than one AI seat." : "Ignored: this connector is bound to one seat."),
+      .describe(owner ? "Game id. Omit to use the most recently active unfinished game." : "Ignored: the seat decides the game."),
+    seat:
+      ctx.mode === "play"
+        ? z.string().describe('Required: the seat code from the host\'s message, e.g. "ab12cd34ef56-0123456789abcdef0123456789abcdef".')
+        : z
+            .string()
+            .optional()
+            .describe(owner ? "Your seat token. Needed only when the game has more than one AI seat." : "Ignored: this connector is bound to one seat."),
   };
 
   const act = async (args: { game_id?: string; seat?: string }, actions: MatchAction[]) => {
@@ -70,10 +84,10 @@ export function buildMcpServer(env: Env, origin: string, ctx: McpContext): McpSe
     let match = g.match;
     for (const a of actions) {
       const res = await roomOf(env, g.id).act(g.seat, a);
-      if (!res.ok) return text(`Not allowed: ${res.message}\n\n${describeMatch(match, g.seat, pageOf(g.id))}`, true);
+      if (!res.ok) return text(`Not allowed: ${res.message}\n\n${await describe(match, g.seat)}`, true);
       match = res.match;
     }
-    return text(describeMatch(match, g.seat, pageOf(g.id)));
+    return text(await describe(match, g.seat));
   };
 
   if (owner) {
@@ -126,7 +140,7 @@ export function buildMcpServer(env: Env, origin: string, ctx: McpContext): McpSe
           else if (i.kind === "ai") lines.push(`- seat ${i.seat} ${i.name} (AI): another AI joins with join_game, or with this connector URL: ${i.link}`);
           else lines.push(`- seat ${i.seat} ${i.name}: bot, plays by itself`);
         }
-        lines.push("", `Rules: ${GAMES[k].rules}`, "", describeMatch(match, mySeat, pageOf(id)));
+        lines.push("", `Rules: ${GAMES[k].rules}`, "", await describe(match, mySeat));
         return text(lines.join("\n"));
       },
     );
@@ -146,7 +160,7 @@ export function buildMcpServer(env: Env, origin: string, ctx: McpContext): McpSe
         const seat = openSeat(m, "ai");
         if (seat === null) return text("This table has no free AI seat.", true);
         const joined = (await room.join(seat)) ?? m;
-        return text(`You took seat ${seat}. Your seat token: ${m.seats[seat]!.token} (pass it as "seat" in every call).\n\n${describeMatch(joined, seat, pageOf(game_id))}`);
+        return text(`You took seat ${seat}. Your seat token: ${m.seats[seat]!.token} (pass it as "seat" in every call).\n\n${await describe(joined, seat)}`);
       },
     );
 
@@ -175,7 +189,7 @@ export function buildMcpServer(env: Env, origin: string, ctx: McpContext): McpSe
     async (args) => {
       const g = await resolve(args);
       if ("error" in g) return text(g.error, true);
-      return text(describeMatch(g.match, g.seat, pageOf(g.id)));
+      return text(await describe(g.match, g.seat));
     },
   );
 
@@ -211,7 +225,7 @@ export function buildMcpServer(env: Env, origin: string, ctx: McpContext): McpSe
       const { match, timedOut } = await roomOf(env, g.id).waitFor(g.seat, timeout_seconds * 1000);
       if (!match) return text("Game disappeared.", true);
       const head = timedOut ? "Still waiting (timed out). Call wait_for_opponent again.\n\n" : "";
-      return text(head + describeMatch(match, g.seat, pageOf(g.id)));
+      return text(head + (await describe(match, g.seat)));
     },
   );
 

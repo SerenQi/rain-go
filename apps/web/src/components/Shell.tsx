@@ -1,7 +1,8 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { prefs } from "../api";
 import { navigate, type Route } from "../router";
-import { IconBoard, IconGear, IconHome, IconTerminal } from "./icons";
+import { BRAND } from "../brand";
+import { DropMark, IconBoard, IconGear, IconHome, IconTerminal } from "./icons";
 import { Settings } from "./Settings";
 
 export function useNow(ms = 30_000) {
@@ -82,31 +83,70 @@ export function Header({ status, left }: { status: ReactNode; left?: ReactNode }
 const NAV = [
   { key: "lobby", label: "大厅", icon: IconHome },
   { key: "game", label: "棋盘", icon: IconBoard },
+  { key: "arena", label: "擂台", icon: IconBoard },
   { key: "connect", label: "连接", icon: IconTerminal },
 ] as const;
 
-function BottomNav({ route }: { route: Route }) {
-  const go = (key: (typeof NAV)[number]["key"]) => {
-    if (key === "lobby") navigate("/");
-    else if (key === "connect") navigate("/connect");
-    else {
-      const last = prefs.lastGame();
-      navigate(last ? `/g/${last}` : "/");
-    }
-  };
+const go = (key: (typeof NAV)[number]["key"]) => {
+  if (key === "lobby") navigate("/");
+  else if (key === "connect") navigate("/connect");
+  else if (key === "arena") navigate("/arena");
+  else {
+    const last = prefs.lastGame();
+    navigate(last ? `/g/${last}` : "/");
+  }
+};
+
+/** Desktop: the same destinations as a fixed column on the left. */
+function SideNav({ route }: { route: Route }) {
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-20 px-4 land:hidden pb-[max(10px,env(safe-area-inset-bottom))] lg:pb-[max(14px,env(safe-area-inset-bottom))]">
-      <div className="glass mx-auto flex h-[68px] max-w-[520px] items-center justify-around !rounded-[30px] px-2 lg:h-auto lg:!rounded-[34px] lg:py-2.5">
+    <aside className="fixed inset-y-0 left-0 z-20 hidden w-[232px] flex-col p-4 lg:flex">
+      <div className="glass flex flex-1 flex-col !rounded-[30px] px-3 py-5">
+        <button className="flex items-center gap-3 px-3 text-left" onClick={() => navigate("/")}>
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-ink">
+            <DropMark width={26} height={26} />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-[1.35rem] font-bold leading-tight">{BRAND.zh}</span>
+            <span className="block truncate text-xs italic text-muted">{BRAND.en}</span>
+          </span>
+        </button>
+        <nav className="mt-8 space-y-1">
+          {NAV.map(({ key, label, icon: Icon }) => {
+            const active = route.name === key;
+            return (
+              <button
+                key={key}
+                onClick={() => go(key)}
+                aria-current={active ? "page" : undefined}
+                className={`flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition ${active ? "bg-ink text-white" : "text-ink-2 hover:bg-white/45"}`}
+              >
+                <Icon width={20} height={20} />
+                <span className={active ? "font-semibold" : ""}>{label}</span>
+              </button>
+            );
+          })}
+        </nav>
+        <div className="mt-auto px-3 text-xs leading-relaxed text-faint">{BRAND.tagline} · 人和 AI 同桌</div>
+      </div>
+    </aside>
+  );
+}
+
+function BottomNav({ route }: { route: Route }) {
+  return (
+    <nav className="fixed inset-x-0 bottom-0 z-20 px-4 land:hidden pb-[max(10px,env(safe-area-inset-bottom))] lg:hidden">
+      <div className="glass mx-auto flex h-[68px] max-w-[520px] items-center justify-around !rounded-[30px] px-2">
         {NAV.map(({ key, label, icon: Icon }) => {
           const active = route.name === key;
           return (
-            <button key={key} onClick={() => go(key)} className="flex w-20 flex-col items-center gap-0.5 lg:gap-1" aria-current={active ? "page" : undefined}>
+            <button key={key} onClick={() => go(key)} className="flex w-20 flex-col items-center gap-0.5" aria-current={active ? "page" : undefined}>
               <span
-                className={`grid h-10 w-10 place-items-center rounded-full transition lg:h-12 lg:w-12 ${active ? "bg-ink text-white" : "text-faint"}`}
+                className={`grid h-10 w-10 place-items-center rounded-full transition ${active ? "bg-ink text-white" : "text-faint"}`}
               >
                 <Icon width={21} height={21} />
               </span>
-              <span className={`text-xs lg:text-sm ${active ? "font-semibold text-ink" : "text-faint"}`}>{label}</span>
+              <span className={`text-xs ${active ? "font-semibold text-ink" : "text-faint"}`}>{label}</span>
             </button>
           );
         })}
@@ -115,17 +155,17 @@ function BottomNav({ route }: { route: Route }) {
   );
 }
 
-export function Shell({ route, children, wide = false }: { route: Route; children: ReactNode; wide?: boolean }) {
+export function Shell({ route, children }: { route: Route; children: ReactNode }) {
   return (
     <>
       <Backdrop />
       <main
-        className={`mx-auto flex h-dvh flex-col overflow-hidden px-4 pb-[calc(80px+max(10px,env(safe-area-inset-bottom)))] land:max-w-none land:pr-[max(12px,env(safe-area-inset-right))] land:pb-[max(8px,env(safe-area-inset-bottom))] land:pl-[max(12px,env(safe-area-inset-left))] lg:block lg:h-auto lg:overflow-visible lg:pb-40 ${
-          wide ? "max-w-[520px] lg:max-w-[1100px]" : "max-w-[520px]"
-        }`}
+        className="mx-auto flex h-dvh max-w-[520px] flex-col overflow-hidden px-4 pb-[calc(80px+max(10px,env(safe-area-inset-bottom)))] land:max-w-none land:pr-[max(12px,env(safe-area-inset-right))] land:pb-[max(8px,env(safe-area-inset-bottom))] land:pl-[max(12px,env(safe-area-inset-left))] lg:block lg:h-auto lg:max-w-none lg:overflow-visible lg:pr-8 lg:pb-12 lg:pl-[264px]"
       >
-        {children}
+        {/* A layout box only on desktop; on phones the pages stay direct flex children of main. */}
+        <div className="contents lg:mx-auto lg:block lg:max-w-[1180px]">{children}</div>
       </main>
+      <SideNav route={route} />
       <BottomNav route={route} />
     </>
   );

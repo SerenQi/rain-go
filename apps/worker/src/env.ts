@@ -1,4 +1,4 @@
-import type { Match, MatchAction, NewMatchOptions, Seat } from "@rain-go/engine";
+import type { Match, MatchAction, NewMatchOptions, Seat, SeatKind } from "@rain-go/engine";
 import type { ActResult, GameRoom } from "./game-room";
 import type { Lobby } from "./lobby";
 
@@ -8,6 +8,10 @@ export interface Env {
   ASSETS: Fetcher;
   /** Shared secret for the MCP endpoint and for acting as the human player. Unset means open access. */
   ACCESS_TOKEN?: string;
+  /** Explicitly enable unauthenticated browser arena creation. */
+  PUBLIC_ARENA?: string;
+  /** Canonical external origin when running behind a reverse proxy. */
+  PUBLIC_ORIGIN?: string;
 }
 
 export const lobbyOf = (env: Env) => env.LOBBY.get(env.LOBBY.idFromName("main"));
@@ -21,6 +25,9 @@ export function roomOf(env: Env, id: string) {
     create: (o: NewMatchOptions) => stub.create(o) as unknown as Promise<Match>,
     get: () => stub.get() as unknown as Promise<Match | null>,
     act: (seat: Seat, action: MatchAction) => stub.act(seat, action) as unknown as Promise<ActResult>,
+    setSeat: (seat: Seat, kind: SeatKind, profile?: { name?: string; avatar?: string; joined?: boolean; host?: boolean }) =>
+      stub.setSeat(seat, kind, profile) as unknown as Promise<ActResult>,
+    start: () => stub.start() as unknown as Promise<ActResult>,
     join: (seat: Seat) => stub.join(seat) as unknown as Promise<Match | null>,
     waitFor: (seat: Seat, ms: number) => stub.waitFor(seat, ms) as unknown as Promise<{ match: Match | null; timedOut: boolean }>,
     fetch: (req: Request) => stub.fetch(req),
@@ -43,6 +50,26 @@ export function newSeatToken(gameId: string): string {
 export function gameOfToken(token: string | null | undefined): string | null {
   const m = token ? /^([a-z0-9]{6,32})-[0-9a-f]{32}$/.exec(token) : null;
   return m ? m[1]! : null;
+}
+
+/**
+ * A read-only link for one seat: "<gameId>-w<hash>". It is a one-way hash of the seat token, so it
+ * shows that seat's own cards but cannot be turned back into the token that acts for the seat.
+ */
+export async function watchTokenOf(seatToken: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`rain-go watch:${seatToken}`)));
+  return `${gameOfToken(seatToken)}-w${[...digest.slice(0, 16)].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
+}
+
+export const isWatchToken = (token: string | null | undefined): token is string => Boolean(token && /^[a-z0-9]{6,32}-w[0-9a-f]{32}$/.test(token));
+
+/** The seat a watch token shows, or null. Bots have nothing to hide but nobody needs their view either. */
+export async function seatByWatch(m: Match, token: string | null | undefined): Promise<Seat | null> {
+  if (!isWatchToken(token) || !token.startsWith(`${m.id}-`)) return null;
+  for (let i = 0; i < m.seats.length; i++) {
+    if (m.seats[i]!.kind !== "bot" && safeEqual(await watchTokenOf(m.seats[i]!.token), token)) return i;
+  }
+  return null;
 }
 
 function safeEqual(a: string, b: string): boolean {

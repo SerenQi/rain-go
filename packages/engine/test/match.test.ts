@@ -8,6 +8,12 @@ import {
   openSeat,
   reversiLegal,
   seatByToken,
+  setSeatKind,
+  startMatch,
+  timeoutMatch,
+  turnDeadline,
+  timedOutLast,
+  TURN_TIMEOUT_MS,
   shuffled,
   statusOf,
   viewMatch,
@@ -108,6 +114,18 @@ describe("match layer", () => {
     expect(describeMatch(m, 0)).toContain("You are X (black)");
   });
 
+  it("gives both arena seats the same game information apart from their color", () => {
+    const game = createMatch({ id: "equal", kind: "gomoku", informationMode: "equal", seats: seats("ai", "ai"), seed: 42, now: 0 });
+    const m = run(game, [[0, "H8"], [1, { type: "say", text: "private chat must not change the state" }]]);
+    const black = JSON.parse(describeMatch(m, 0, "https://example.test/g/equal"));
+    const white = JSON.parse(describeMatch(m, 1));
+    expect(black.you).toBe("black");
+    expect(white.you).toBe("white");
+    expect({ ...black, you: "same" }).toEqual({ ...white, you: "same" });
+    expect(black).toMatchObject({ turn: "white", last_move: "H8", stones: { black: ["H8"], white: [] } });
+    expect(JSON.stringify(black)).not.toMatch(/private chat|https:|Seren|Claude|t0|t1/);
+  });
+
   it("builds per-viewer and spectator views without tokens", () => {
     const m = newMatch("reversi");
     const v = viewMatch<{ you: number | null }>(m, 1);
@@ -172,9 +190,10 @@ describe("gomoku", () => {
     expect(statusOf(m).resultText).toBe("Seren 胜 · 黑连五");
   });
 
-  it("warns the AI about a four", () => {
+  it("shows the board without recommending tactical moves", () => {
     const m = run(newMatch("gomoku"), [[0, "A1"], [1, "A2"], [0, "B1"], [1, "B2"], [0, "C1"], [1, "C2"], [0, "D1"]]);
-    expect(describeMatch(m, 1)).toContain("Opponent threatens five at: E1");
+    expect(describeMatch(m, 1)).toContain("X X X X .");
+    expect(describeMatch(m, 1)).not.toMatch(/threatens five|Block it|win now/);
   });
 });
 
@@ -197,3 +216,124 @@ describe("reversi", () => {
     expect(statusOf(m).waitingOn).toEqual([]);
   });
 });
+
+describe("waiting rooms", () => {
+  const room = (...kinds: SeatKind[]) =>
+    createMatch({
+      id: "r1",
+      kind: "doudizhu",
+      seats: kinds.map((kind, i) => ({ kind, token: `t${i}`, joined: i === 0, avatar: i === 0 ? "drop" : undefined })),
+      seed: 7,
+      now: 0,
+      hostToken: "h",
+      host: 0,
+    });
+
+  it("holds every move and bot until the host starts a full table", () => {
+    let m = room("human", "human", "bot");
+    expect(m).toMatchObject({ waiting: true, host: 0, hostToken: "h" });
+    expect(viewMatch(m, 0)).not.toHaveProperty("hostToken");
+    expect(m.log).toHaveLength(0);
+    expect(m.seats[0]!.avatar).toBe("drop");
+    expect(statusOf(m).waitingOn).toEqual([]);
+    expect(applyMatchAction(m, 0, { type: "move", move: "bid 3" }, 1)).toMatchObject({ ok: false, error: "not_started" });
+    expect(startMatch(m, 1)).toMatchObject({ ok: false, error: "not_full" });
+    m = joinSeat(m, 1, 1);
+    const res = startMatch(m, 2);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.match.waiting).toBe(false);
+    expect(statusOf(res.match).waitingOn.length).toBeGreaterThan(0);
+    expect(startMatch(res.match, 3)).toMatchObject({ ok: false, error: "started" });
+  });
+
+  it("lets the host turn open seats into friends, AIs, bots or their own bot, with a fresh token", () => {
+    const m = room("human", "human", "human");
+    const bot = setSeatKind(m, 1, "bot", "new1", 1);
+    expect(bot).toMatchObject({ ok: true });
+    if (!bot.ok) return;
+    expect(bot.match.seats[1]).toMatchObject({ kind: "bot", joined: true, token: "new1" });
+    const ai = setSeatKind(bot.match, 1, "ai", "new2", 2, { name: "Claude", avatar: "spark" });
+    expect(ai.ok && ai.match.seats[1]).toMatchObject({ kind: "ai", joined: false, name: "Claude", avatar: "spark", token: "new2" });
+    const mine = setSeatKind(m, 2, "human", "new3", 3, { name: "小鲸", joined: true });
+    expect(mine.ok && mine.match.seats[2]).toMatchObject({ kind: "human", joined: true, name: "小鲸" });
+    expect(setSeatKind(joinSeat(m, 1, 1), 1, "bot", "x", 1)).toMatchObject({ ok: false, error: "taken" });
+    // Filling seats back to front must not give two bots the same name.
+    const back = setSeatKind(m, 2, "bot", "b2", 1);
+    const front = back.ok ? setSeatKind(back.match, 1, "bot", "b1", 2) : back;
+    expect(front.ok && new Set(front.match.seats.slice(1).map((s) => s.name)).size).toBe(2);
+  });
+
+  it("lets the host give their own seat to an AI and run the room from outside, or sit back down", () => {
+    const m = room("human", "human", "human");
+    const out = setSeatKind(m, 0, "ai", "new0", 1, { name: "Claude" });
+    expect(out.ok && out.match.seats[0]).toMatchObject({ kind: "ai", joined: false, token: "new0" });
+    if (!out.ok) return;
+    expect(out.match.host).toBeUndefined();
+    expect(out.match.hostToken).toBe("h");
+    const back = setSeatKind(out.match, 2, "human", "new2", 2, { name: "房主", host: true });
+    expect(back.ok && back.match).toMatchObject({ host: 2, seats: [{}, {}, { joined: true, name: "房主" }] });
+    if (!back.ok) return;
+    expect(setSeatKind(back.match, 1, "human", "x", 3, { host: true })).toMatchObject({ ok: false, error: "seated" });
+    const nobody = createMatch({ id: "g", kind: "go", seats: [{ kind: "human", token: "a" }, { kind: "human", token: "b" }], seed: 1, now: 0, hostToken: "h" });
+    expect(nobody.waiting).toBe(true);
+    expect(nobody.host).toBeUndefined();
+    const bots = [0, 1].reduce((acc, i) => {
+      const r = setSeatKind(acc, i, "bot", `b${i}`, 1);
+      return r.ok ? r.match : acc;
+    }, nobody);
+    expect(startMatch(bots, 2)).toMatchObject({ ok: false, error: "bots_only" });
+  });
+
+  it("labels the seat's read-only watch link in the AI's state", () => {
+    const text = describeMatch(room("human", "ai", "bot"), 1, "https://x.test/g/r1?w=abc");
+    expect(text).toContain("Watch link (read-only, shows only your own seat's cards, cannot play for you): https://x.test/g/r1?w=abc");
+    expect(describeMatch(room("human", "ai", "bot"), 1)).not.toContain("Watch link");
+  });
+
+  it("gives an AI in a waiting room exactly one status line", () => {
+    const text = describeMatch(room("human", "ai", "bot"), 1);
+    expect(text.split("\n").filter((l) => l.startsWith("Status:"))).toHaveLength(1);
+  });
+
+  it("keeps tables created without a host token playing at once", () => {
+    expect(newMatch("gomoku").waiting).toBeUndefined();
+  });
+});
+
+describe("turn clock", () => {
+  it("lets the rule bot move for a seat that runs out of time, and restarts the clock", () => {
+    const m = newMatch("gomoku", "human", "human");
+    expect(turnDeadline(m)).toBe(TURN_TIMEOUT_MS);
+    expect(timeoutMatch(m, TURN_TIMEOUT_MS - 1)).toBeNull();
+    const late = timeoutMatch(m, TURN_TIMEOUT_MS);
+    expect(late).not.toBeNull();
+    expect(late!.log).toHaveLength(1);
+    expect(late!.log[0]).toMatchObject({ seat: 0, timeout: true });
+    expect(late!.turnAt).toBe(TURN_TIMEOUT_MS);
+    expect(statusOf(late!).waitingOn).toEqual([1]);
+    const moved = applyMatchAction(late!, 1, { type: "move", move: "A1" }, TURN_TIMEOUT_MS + 5);
+    expect(moved.ok && moved.match.turnAt).toBe(TURN_TIMEOUT_MS + 5);
+  });
+
+  it("tells the AI that timed out to answer faster, until it moves by itself", () => {
+    const late = timeoutMatch(newMatch("gomoku", "ai", "human"), TURN_TIMEOUT_MS)!;
+    expect(timedOutLast(late, 0)).toBe(true);
+    expect(describeMatch(late, 0)).toContain("lower your reasoning effort");
+    const back = applyMatchAction(late, 1, { type: "move", move: "A1" }, TURN_TIMEOUT_MS + 1);
+    const own = back.ok ? applyMatchAction(back.match, 0, { type: "move", move: "B2" }, TURN_TIMEOUT_MS + 2) : back;
+    expect(own.ok && timedOutLast(own.match, 0)).toBe(false);
+    expect(own.ok && describeMatch(own.match, 0)).not.toContain("ran out of time");
+  });
+
+  it("does not run while a room waits or after the game ends", () => {
+    const room = createMatch({ id: "r", kind: "go", seats: [{ kind: "human", token: "a", joined: true }, { kind: "human", token: "b", joined: true }], seed: 1, now: 0, hostToken: "h" });
+    expect(turnDeadline(room)).toBeNull();
+    expect(timeoutMatch(room, 10 * TURN_TIMEOUT_MS)).toBeNull();
+    const started = startMatch(room, 50);
+    expect(started.ok && turnDeadline(started.match)).toBe(50 + TURN_TIMEOUT_MS);
+    const over = applyMatchAction(newMatch("gomoku"), 0, { type: "resign" }, 1);
+    expect(over.ok && turnDeadline(over.match)).toBeNull();
+  });
+});
+

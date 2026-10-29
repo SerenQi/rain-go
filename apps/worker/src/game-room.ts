@@ -5,14 +5,19 @@ import {
   createMatch,
   joinSeat,
   seatByToken,
+  setSeatKind,
+  startMatch,
   statusOf,
+  timeoutMatch,
+  turnDeadline,
   viewMatch,
   type Match,
   type MatchAction,
   type NewMatchOptions,
   type Seat,
+  type SeatKind,
 } from "@rain-go/engine";
-import { lobbyOf, type Env } from "./env";
+import { lobbyOf, newSeatToken, seatByWatch, type Env } from "./env";
 import type { GameMeta } from "./lobby";
 
 export type ActResult = { ok: true; match: Match } | { ok: false; error: string; message: string };
@@ -33,6 +38,7 @@ export class GameRoom extends DurableObject<Env> {
   private async save(m: Match): Promise<void> {
     this.match = m;
     await this.ctx.storage.put("match", m);
+    await this.schedule(m);
     for (const ws of this.ctx.getWebSockets()) {
       const seat = (ws.deserializeAttachment() as { seat: Seat | null } | null)?.seat ?? null;
       try {
@@ -45,6 +51,23 @@ export class GameRoom extends DurableObject<Env> {
     this.waiters.clear();
     await lobbyOf(this.env).upsert(metaOf(m));
   }
+
+  /** Wakes the room when the current turn runs out. */
+  private async schedule(m: Match): Promise<void> {
+    const deadline = turnDeadline(m);
+    if (deadline !== null) await this.ctx.storage.setAlarm(deadline);
+    else await this.ctx.storage.deleteAlarm();
+  }
+
+  async alarm(): Promise<void> {
+    let m = await this.load();
+    if (!m) return;
+    const now = Date.now();
+    const next = timeoutMatch(m, now);
+    if (next) await this.save(next);
+    else await this.schedule(m);
+  }
+
 
   async create(o: NewMatchOptions): Promise<Match> {
     if (await this.load()) throw new Error("Game already exists");
@@ -61,6 +84,26 @@ export class GameRoom extends DurableObject<Env> {
     const m = await this.load();
     if (!m) return { ok: false, error: "not_found", message: "找不到这局" };
     const res = applyMatchAction(joinSeat(m, seat, Date.now()), seat, action, Date.now());
+    if (!res.ok) return res;
+    await this.save(res.match);
+    return { ok: true, match: res.match };
+  }
+
+  /** Host only, while the room is waiting: invite a friend, an AI or a bot into a seat, or move the host. */
+  async setSeat(seat: Seat, kind: SeatKind, profile: { name?: unknown; avatar?: unknown; joined?: boolean; host?: boolean } = {}): Promise<ActResult> {
+    const m = await this.load();
+    if (!m) return { ok: false, error: "not_found", message: "找不到这局" };
+    const res = setSeatKind(m, seat, kind, newSeatToken(m.id), Date.now(), profile);
+    if (!res.ok) return res;
+    await this.save(res.match);
+    return { ok: true, match: res.match };
+  }
+
+  /** Host only: starts a waiting room once every seat is taken. */
+  async start(): Promise<ActResult> {
+    const m = await this.load();
+    if (!m) return { ok: false, error: "not_found", message: "找不到这局" };
+    const res = startMatch(m, Date.now());
     if (!res.ok) return res;
     await this.save(res.match);
     return { ok: true, match: res.match };
@@ -97,12 +140,15 @@ export class GameRoom extends DurableObject<Env> {
   async fetch(req: Request): Promise<Response> {
     if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") return new Response("Expected WebSocket", { status: 426 });
     let m = await this.load();
-    const seat = m ? seatByToken(m, new URL(req.url).searchParams.get("t")) : null;
+    const q = new URL(req.url).searchParams;
+    // A watch link sees its seat's view but never takes the seat.
+    const watched = m && q.has("w") ? await seatByWatch(m, q.get("w")) : null;
+    const seat = watched ?? (m ? seatByToken(m, q.get("t")) : null);
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment({ seat });
-    if (m && seat !== null && m.seats[seat]?.kind === "human" && !m.seats[seat]!.joined) {
+    if (m && watched === null && seat !== null && m.seats[seat]?.kind === "human" && !m.seats[seat]!.joined) {
       m = joinSeat(m, seat, Date.now());
       await this.save(m);
     }
@@ -131,6 +177,7 @@ export function metaOf(m: Match): GameMeta {
     seats: m.seats.map(({ token: _t, ...s }) => s),
     labels: GAMES[m.kind].seatLabels(m.state),
     over: Boolean(st.outcome),
+    ...(m.waiting ? { waiting: true } : {}),
     waitingOn: st.waitingOn,
     moves: m.log.length,
     result: st.resultText ?? undefined,

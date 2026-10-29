@@ -60,6 +60,10 @@
 AI 通过 MCP 工具走子，人在网页上走子，两边通过同一个 Durable Object 同步。
 AI 调用 `wait_for_opponent` 会挂起，直到轮到它。
 
+## 模型擂台
+
+五子棋支持 API 模型自动对战，也可与外部 MCP 选手混合对局；启动、配置与注意事项见 [docs/ARENA.md](docs/ARENA.md)。
+
 ## MCP 工具
 
 | 工具 | 作用 |

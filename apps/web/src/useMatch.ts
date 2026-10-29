@@ -2,8 +2,11 @@ import type { MatchView } from "@rain-go/engine";
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "./api";
 
-/** Loads a match and keeps it live over a WebSocket. The server only sends the view of the seat `seatToken` holds. */
-export function useMatch(id: string, seatToken: string) {
+/**
+ * Loads a match and keeps it live over a WebSocket. The server only sends the view of the seat
+ * `seatToken` holds, or, without one, the seat a read-only `watchToken` shows.
+ */
+export function useMatch(id: string, seatToken: string, watchToken = "") {
   const [match, setMatchRaw] = useState<MatchView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [live, setLive] = useState(false);
@@ -22,11 +25,13 @@ export function useMatch(id: string, seatToken: string) {
     let retry = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
-    api.getGame(id, seatToken || undefined).then(setMatch, (e: unknown) => setError(e instanceof ApiError && e.status === 404 ? "找不到这局" : "加载失败"));
+    const watch = seatToken ? "" : watchToken;
+    api.getGame(id, seatToken || undefined, watch || undefined).then(setMatch, (e: unknown) => setError(e instanceof ApiError && e.status === 404 ? "找不到这局" : "加载失败"));
 
     const connect = () => {
       const proto = location.protocol === "https:" ? "wss" : "ws";
-      ws = new WebSocket(`${proto}://${location.host}/api/games/${id}/ws${seatToken ? `?t=${encodeURIComponent(seatToken)}` : ""}`);
+      const q = seatToken ? `?t=${encodeURIComponent(seatToken)}` : watch ? `?w=${encodeURIComponent(watch)}` : "";
+      ws = new WebSocket(`${proto}://${location.host}/api/games/${id}/ws${q}`);
       ws.onopen = () => {
         setLive(true);
         retry = 0;
@@ -49,7 +54,7 @@ export function useMatch(id: string, seatToken: string) {
       clearInterval(ping);
       ws?.close();
     };
-  }, [id, seatToken, setMatch]);
+  }, [id, seatToken, watchToken, setMatch]);
 
   return { match, setMatch, error, live, syncedAt };
 }

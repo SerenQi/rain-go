@@ -7,7 +7,7 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "typecheck": "tsc -p .",
-    "test": "echo 'worker: covered by smoke test (pnpm smoke)'",
+    "test": "node --test arena/test/*.test.mjs",
     "cf-typegen": "wrangler types",
     "smoke": "node scripts/smoke.mjs",
     "seed": "node scripts/seed-demo.mjs",

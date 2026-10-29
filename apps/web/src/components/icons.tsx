@@ -82,3 +82,8 @@ export const IconInvite = (p: SVGProps<SVGSVGElement>) => (
     <path d="M3.5 19a5.5 5.5 0 0 1 11 0M18 8v6M15 11h6" />
   </svg>
 );
+export const IconRules = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5v-15ZM5 19.5A1.5 1.5 0 0 0 6.5 21H19M9 7.5h6M9 11h6" />
+  </svg>
+);

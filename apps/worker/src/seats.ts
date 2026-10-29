@@ -6,6 +6,7 @@ export interface SeatSpec {
   name?: string;
   /** Marks the seat taken by whoever creates the game. */
   me?: boolean;
+  avatar?: string;
 }
 
 const KINDS = new Set<SeatKind>(["human", "ai", "bot"]);
@@ -29,6 +30,7 @@ export function buildSeats(kind: GameKind, gameId: string, raw: unknown): { seat
     seats: specs.map((s, i) => ({
       kind: s.kind,
       name: typeof s.name === "string" ? s.name : undefined,
+      avatar: typeof s.avatar === "string" ? s.avatar : undefined,
       token: newSeatToken(gameId),
       joined: i === mineIdx,
     })),

@@ -4,7 +4,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { UIS } from "../games";
 import type { BoardProps } from "../games/types";
 import { ChatInput, ChatList, Sheet } from "./Chat";
-import { DropMark, IconChat, IconFlag, IconGear, IconHome, IconInvite, IconName } from "./icons";
+import { DropMark, IconChat, IconFlag, IconGear, IconHome, IconInvite, IconName, IconRules } from "./icons";
+import { RulesSheet, firstVisit } from "./RulesSheet";
 import { Settings } from "./Settings";
 import { NameSheet } from "./NameSheet";
 import { Pill, Stat } from "./Pill";
@@ -24,6 +25,7 @@ export function MatchScreen({
   chip,
   extra,
   onInvite,
+  readOnly = false,
 }: {
   match: MatchView;
   perform: (a: MatchAction) => Promise<void>;
@@ -31,6 +33,8 @@ export function MatchScreen({
   extra?: ReactNode;
   /** Shown as an invite button when the table still has open seats. */
   onInvite?: () => void;
+  /** Watching through `me`'s eyes (its own cards) without being able to act for it. */
+  readOnly?: boolean;
 }) {
   const wide = useWide();
   const landscape = useLandscape();
@@ -39,12 +43,19 @@ export function MatchScreen({
   const [chatOpen, setChatOpen] = useState(false);
   const [namesOpen, setNamesOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [rulesOpen, setRulesOpen] = useState(false);
+  // A newcomer to this game gets its rules once, unasked.
+  useEffect(() => {
+    if (!readOnly && !match.status.outcome && firstVisit(match.kind)) setRulesOpen(true);
+  }, [match.kind]);
   const [seenChat, setSeenChat] = useState(0);
   const mod = GAMES[match.kind];
   const ui = UIS[match.kind];
   const me = match.me;
   const names = match.seats.map((s) => s.name);
   const n = match.seats.length;
+  /** Whether this screen may move, chat and resign for `me`. */
+  const canPlay = me !== null && !readOnly;
 
   useEffect(() => {
     if (chatOpen) setSeenChat(match.chat.length);
@@ -65,7 +76,7 @@ export function MatchScreen({
   }, [wide, landscape, ui.prefersLandscape, match.kind, toast.show]);
 
   const send = async (a: MatchAction) => {
-    if (busy || me === null) return false;
+    if (busy || !canPlay) return false;
     setBusy(true);
     try {
       await perform(a);
@@ -79,7 +90,7 @@ export function MatchScreen({
   };
 
   const st = match.status;
-  const myTurn = me !== null && !st.outcome && st.waitingOn.includes(me);
+  const myTurn = canPlay && me !== null && !st.outcome && st.waitingOn.includes(me);
   const props: BoardProps = {
     match,
     view: match.view,
@@ -97,8 +108,13 @@ export function MatchScreen({
   const waitingNames = st.waitingOn.filter((s) => s !== me).map((s) => names[s]);
   const status =
     st.resultText ??
+    (readOnly && me !== null
+      ? `只读 · ${names[me]} 的视角${waitingNames.length ? ` · 等 ${waitingNames.join("、")}` : ` · 轮到 ${names[me]}`}`
+      : null) ??
     ui.status?.(match.view, match) ??
-    (me === null ? `观战中 · 等 ${waitingNames.join("、")}` : myTurn ? "轮到你了" : `${waitingNames.join("、") || "对手"} 思考中…`);
+    (me === null
+        ? `观战中 · 等 ${waitingNames.join("、")}`
+        : myTurn ? "轮到你了" : `${waitingNames.join("、") || "对手"} 思考中…`);
   const badge = ui.badge?.(match.view, match) ?? { value: String(match.log.length), label: "MOVE" };
   const unread = match.chat.length > seenChat && match.chat.at(-1)?.seat !== me;
   const labelOf = (i: Seat) => match.labels[i] ?? "";
@@ -158,10 +174,11 @@ export function MatchScreen({
 
   const sheets = (
     <>
+      {rulesOpen && <RulesSheet kind={match.kind} onClose={() => setRulesOpen(false)} />}
       {chatOpen && (
         <Sheet title="Whisper" onClose={() => setChatOpen(false)}>
           <ChatList chat={match.chat} me={me} names={names} className="mt-3 min-h-0 flex-1" />
-          {me !== null && (
+          {canPlay && me !== null && (
             <div className="mt-3 flex shrink-0">
               <ChatInput to={n === 2 ? names[1 - me]! : "大家"} busy={busy} compact onSend={(text) => send({ type: "say", text })} />
             </div>
@@ -201,7 +218,7 @@ export function MatchScreen({
   );
   const iconButtons = (
     <>
-      {!st.outcome && me !== null && (
+      {!st.outcome && canPlay && (
         <button className="btn btn-glass shrink-0 !px-3.5" onClick={resign} aria-label="认输">
           <IconFlag width={20} height={20} />
         </button>
@@ -211,6 +228,9 @@ export function MatchScreen({
           <IconInvite width={20} height={20} />
         </button>
       )}
+      <button className="btn btn-glass shrink-0 !px-3.5" onClick={() => setRulesOpen(true)} aria-label="规则">
+        <IconRules width={20} height={20} />
+      </button>
       <button className="btn btn-glass shrink-0 !px-3.5" onClick={() => setNamesOpen(true)} aria-label="名字">
         <IconName width={20} height={20} />
       </button>
@@ -256,7 +276,10 @@ export function MatchScreen({
                 {[...recent].reverse().map((l, i) => (
                   <div key={match.log.length - i} className={`flex shrink-0 gap-1.5 truncate text-[0.82rem] leading-snug ${i === 0 ? "text-ink" : "text-muted"}`}>
                     <span className="shrink-0 text-faint">{l.seat === me ? "你" : names[l.seat]}</span>
-                    <span className="truncate">{l.move}</span>
+                    <span className="truncate">
+                      {l.move}
+                      {l.timeout && <span className="text-faint"> · 超时代走</span>}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -266,7 +289,7 @@ export function MatchScreen({
                 </button>
               )}
             </div>
-            {Actions && !st.outcome && me !== null && (
+            {Actions && !st.outcome && canPlay && (
               <div className="flex shrink-0 gap-2 [&_.btn]:!min-h-[42px] [&_.btn]:flex-1">
                 <Actions {...props} />
               </div>
@@ -275,7 +298,7 @@ export function MatchScreen({
               <button className={tool} onClick={() => navigate("/")} aria-label="回大厅">
                 <IconHome width={20} height={20} />
               </button>
-              {!st.outcome && me !== null && (
+              {!st.outcome && canPlay && (
                 <button className={tool} onClick={resign} aria-label="认输">
                   <IconFlag width={20} height={20} />
                 </button>
@@ -285,6 +308,9 @@ export function MatchScreen({
                   <IconInvite width={20} height={20} />
                 </button>
               )}
+              <button className={tool} onClick={() => setRulesOpen(true)} aria-label="规则">
+                <IconRules width={20} height={20} />
+              </button>
               <button className={tool} onClick={() => setNamesOpen(true)} aria-label="名字">
                 <IconName width={20} height={20} />
               </button>
@@ -323,12 +349,12 @@ export function MatchScreen({
           {seatStrip}
           {board}
           <div className="flex shrink-0 gap-2 [&_.btn]:!min-h-[44px]">
-            {Actions && !st.outcome && me !== null ? (
+            {Actions && !st.outcome && canPlay ? (
               <Actions {...props} />
             ) : (
               <div className="chip min-w-0 flex-1 justify-center !text-ink">
                 <span className="truncate">
-                  {match.log.length ? `${match.log.at(-1)!.seat === me ? "你" : names[match.log.at(-1)!.seat]} · ${match.log.at(-1)!.move}` : mod.name.zh}
+                  {match.log.length ? `${match.log.at(-1)!.seat === me ? "你" : names[match.log.at(-1)!.seat]} · ${match.log.at(-1)!.move}${match.log.at(-1)!.timeout ? "（超时代走）" : ""}` : mod.name.zh}
                 </span>
               </div>
             )}
@@ -361,6 +387,9 @@ export function MatchScreen({
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-x-2 text-[1.05rem] text-muted">
             <span>{seatLine}</span>
+            <button className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.95rem] text-ink-2 hover:bg-white/50" onClick={() => setRulesOpen(true)}>
+              <IconRules width={16} height={16} /> 规则
+            </button>
             <button className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.95rem] text-ink-2 hover:bg-white/50" onClick={() => setNamesOpen(true)}>
               <IconName width={16} height={16} /> 改名
             </button>
@@ -375,7 +404,7 @@ export function MatchScreen({
         <motion.section {...card} className="area-board flex h-[min(78vh,760px)] flex-col">
           {board}
         </motion.section>
-        {me !== null && !st.outcome && (
+        {canPlay && !st.outcome && (
           <motion.section {...card} className="area-controls flex flex-wrap gap-3">
             {Actions && <Actions {...props} />}
             <button className="btn btn-glass flex-1" onClick={resign}>
@@ -396,7 +425,7 @@ export function MatchScreen({
           <motion.section {...card} className="glass px-6 py-5">
             <div className="text-[1.3rem] font-semibold">Whisper</div>
             <ChatList chat={match.chat} me={me} names={names} className="mt-3 max-h-56" />
-            {me !== null && (
+            {canPlay && me !== null && (
               <div className="mt-3 flex">
                 <ChatInput to={n === 2 ? names[1 - me]! : "大家"} busy={busy} onSend={(text) => send({ type: "say", text })} />
               </div>
