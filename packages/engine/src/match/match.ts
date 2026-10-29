@@ -26,7 +26,13 @@ export interface LogEntry {
 }
 
 /** How long a seat may take over one turn before its rule bot moves for it. */
-export const TURN_TIMEOUT_MS = 120_000;
+export const TURN_TIMEOUT_MS = 60_000;
+
+/** True while `seat`'s latest move was made for it by a rule bot because its turn ran out. */
+export const timedOutLast = (m: Pick<Match, "log">, seat: Seat): boolean => {
+  for (let i = m.log.length - 1; i >= 0; i--) if (m.log[i]!.seat === seat) return Boolean(m.log[i]!.timeout);
+  return false;
+};
 
 export interface MatchChat {
   seat: Seat;
@@ -57,10 +63,6 @@ export interface Match {
   options?: Record<string, string>;
   /** When the current turn began; see TURN_TIMEOUT_MS. */
   turnAt?: number;
-  /** Timing tests answered over MCP while the room waited, per seat. `ms` null means it timed out. */
-  bench?: Record<number, { ms: number | null; legal: boolean; at: number }>;
-  /** A timing test in progress: the AI in `seat` has been sent a practice position since `since`. */
-  benchPending?: { seat: Seat; since: number };
   log: LogEntry[];
   chat: MatchChat[];
 }
@@ -237,8 +239,7 @@ export function startMatch(m: Match, now: number): MatchResult {
   if (open) return fail("not_full", `还差 ${open} 人`);
   // Same rule as creating a table: bots alone would play out the whole game for nobody.
   if (m.seats.every((s) => s.kind === "bot")) return fail("bots_only", "至少要有一个真人或 AI");
-  const { benchPending: _p, ...rest } = m;
-  return { ok: true, match: autoplay({ ...rest, waiting: false, turnAt: now, updatedAt: now, version: m.version + 1 }, now) };
+  return { ok: true, match: autoplay({ ...m, waiting: false, turnAt: now, updatedAt: now, version: m.version + 1 }, now) };
 }
 
 /** When the current turn runs out, or null when nothing is on the clock. */
@@ -265,45 +266,6 @@ export function timeoutMatch(m: Match, now: number): Match | null {
   return autoplay({ ...m, state, log: log.slice(-500), turnAt: now, updatedAt: now, version: m.version + 1 }, now);
 }
 
-/**
- * A realistic position near the end of a game for timing a model: the table's own game, options and
- * names, played by rule bots from a fresh deal to about 85% of a full game, stopping where `seat` must act.
- */
-export function practiceMatch(m: Pick<Match, "id" | "kind" | "seats" | "options">, seat: Seat, seed: number): Match | null {
-  const mod = GAMES[m.kind];
-  if (!mod.bot || !m.seats[seat]) return null;
-  const players = m.seats.length;
-  const start = mod.create({ seed: seed >>> 0, players, options: cleanOptions(m.kind, m.options) });
-  const states = [start];
-  const log: LogEntry[] = [];
-  for (let state = start, guard = 0; guard < 3000; guard++) {
-    if (mod.outcome(state)) break;
-    const who = mod.waitingOn(state)[0];
-    if (who === undefined) break;
-    const move = mod.bot(state, who);
-    const res = mod.apply(state, who, move);
-    if (!res.ok) break;
-    state = res.state;
-    states.push(state);
-    log.push({ seat: who, move: res.log ?? move, t: 0 });
-  }
-  for (let i = Math.floor((states.length - 1) * 0.85); i >= 0; i--) {
-    if (!mod.outcome(states[i]!) && mod.waitingOn(states[i]!).includes(seat)) {
-      return {
-        id: m.id,
-        kind: m.kind,
-        createdAt: 0,
-        updatedAt: 0,
-        version: 1,
-        seats: m.seats.map((s) => ({ ...s, token: "", joined: true })),
-        state: states[i]!,
-        log: log.slice(0, i).slice(-500),
-        chat: [],
-      };
-    }
-  }
-  return null;
-}
 
 /**
  * Host only (the caller checks the host token), while waiting: turns an open seat, a bot, or the
@@ -435,6 +397,11 @@ export function describeMatch(m: Match, seat: Seat, watchUrl?: string): string {
   else if (st.resultText) out.push(`GAME OVER: ${st.resultText}.`);
   else if (st.waitingOn.includes(seat)) out.push(`Status: YOUR TURN. Call play. Move syntax: ${mod.moveHelp}`);
   else out.push(`Status: waiting for ${st.waitingOn.map((s) => names[s]).join(", ")}. Call wait_for_opponent.`);
+  if (!st.outcome && timedOutLast(m, seat)) {
+    out.push(
+      `NOTE: your last turn ran out of time (${TURN_TIMEOUT_MS / 1000} s per turn) and a rule bot moved for you. Answer faster: think less deeply (lower your reasoning effort) and call play sooner.`,
+    );
+  }
   out.push("", mod.describe(m.state, seat, names));
   const recent = m.chat.slice(-6);
   if (recent.length) {

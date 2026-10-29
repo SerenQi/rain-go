@@ -12,7 +12,7 @@ import {
   startMatch,
   timeoutMatch,
   turnDeadline,
-  practiceMatch,
+  timedOutLast,
   TURN_TIMEOUT_MS,
   shuffled,
   statusOf,
@@ -291,6 +291,11 @@ describe("waiting rooms", () => {
     expect(describeMatch(room("human", "ai", "bot"), 1)).not.toContain("Watch link");
   });
 
+  it("gives an AI in a waiting room exactly one status line", () => {
+    const text = describeMatch(room("human", "ai", "bot"), 1);
+    expect(text.split("\n").filter((l) => l.startsWith("Status:"))).toHaveLength(1);
+  });
+
   it("keeps tables created without a host token playing at once", () => {
     expect(newMatch("gomoku").waiting).toBeUndefined();
   });
@@ -311,6 +316,16 @@ describe("turn clock", () => {
     expect(moved.ok && moved.match.turnAt).toBe(TURN_TIMEOUT_MS + 5);
   });
 
+  it("tells the AI that timed out to answer faster, until it moves by itself", () => {
+    const late = timeoutMatch(newMatch("gomoku", "ai", "human"), TURN_TIMEOUT_MS)!;
+    expect(timedOutLast(late, 0)).toBe(true);
+    expect(describeMatch(late, 0)).toContain("lower your reasoning effort");
+    const back = applyMatchAction(late, 1, { type: "move", move: "A1" }, TURN_TIMEOUT_MS + 1);
+    const own = back.ok ? applyMatchAction(back.match, 0, { type: "move", move: "B2" }, TURN_TIMEOUT_MS + 2) : back;
+    expect(own.ok && timedOutLast(own.match, 0)).toBe(false);
+    expect(own.ok && describeMatch(own.match, 0)).not.toContain("ran out of time");
+  });
+
   it("does not run while a room waits or after the game ends", () => {
     const room = createMatch({ id: "r", kind: "go", seats: [{ kind: "human", token: "a", joined: true }, { kind: "human", token: "b", joined: true }], seed: 1, now: 0, hostToken: "h" });
     expect(turnDeadline(room)).toBeNull();
@@ -322,18 +337,3 @@ describe("turn clock", () => {
   });
 });
 
-describe("practice positions", () => {
-  it("finds a late, unfinished position where the seat must act, for every game", () => {
-    for (const g of Object.values(GAMES).filter((x) => x.ready)) {
-      const n = g.players.default;
-      const table = { id: "p", kind: g.kind, options: undefined, seats: seats(...Array<SeatKind>(n).fill("human")).map((s) => ({ ...s, joined: true, name: s.name ?? "x" })) };
-      const seat = n - 1;
-      const p = practiceMatch(table, seat, 11);
-      expect(p, g.kind).not.toBeNull();
-      expect(statusOf(p!).outcome, g.kind).toBeNull();
-      expect(statusOf(p!).waitingOn, g.kind).toContain(seat);
-      expect(p!.log.length, g.kind).toBeGreaterThan(5);
-      expect(describeMatch(p!, seat)).toContain("YOUR TURN");
-    }
-  });
-});

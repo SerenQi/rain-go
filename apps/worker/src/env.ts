@@ -28,9 +28,6 @@ export function roomOf(env: Env, id: string) {
     setSeat: (seat: Seat, kind: SeatKind, profile?: { name?: string; avatar?: string; joined?: boolean; host?: boolean }) =>
       stub.setSeat(seat, kind, profile) as unknown as Promise<ActResult>,
     start: () => stub.start() as unknown as Promise<ActResult>,
-    requestBench: (seat: Seat) => stub.requestBench(seat) as unknown as Promise<ActResult>,
-    benchFor: (seat: Seat) => stub.benchFor(seat) as unknown as Promise<Match | null>,
-    answerBench: (seat: Seat, move: string) => stub.answerBench(seat, move) as unknown as Promise<{ ms: number; legal: boolean; message?: string } | null>,
     join: (seat: Seat) => stub.join(seat) as unknown as Promise<Match | null>,
     waitFor: (seat: Seat, ms: number) => stub.waitFor(seat, ms) as unknown as Promise<{ match: Match | null; timedOut: boolean }>,
     fetch: (req: Request) => stub.fetch(req),

@@ -6,7 +6,6 @@ import { setDriven, useBots, useDriven, type MyBot } from "../bots";
 import { navigate } from "../router";
 import { GLYPH } from "../pages/Lobby";
 import { Avatar } from "./Avatar";
-import { BenchPanel } from "./Bench";
 import { Sheet } from "./Chat";
 import { IconCopy } from "./icons";
 import { Header } from "./Shell";
@@ -133,7 +132,6 @@ export function WaitingRoom({
           <p className="px-1 text-sm text-muted">你没有上桌，开局后在旁边观战。想自己玩，点空座位上的「安排」→「我坐这里」。</p>
         )}
         {extra && <div className="glass px-4 py-3">{extra}</div>}
-        <BenchPanel match={match} hostToken={hostToken} watch={watch} />
         <button className="btn btn-glass w-full" onClick={() => navigate("/")}>
           回大厅
         </button>

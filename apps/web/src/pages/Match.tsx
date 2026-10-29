@@ -10,6 +10,7 @@ import { Header, hhmm, useNow } from "../components/Shell";
 import { useToast } from "../components/Toast";
 import { navigate } from "../router";
 import { useMatch } from "../useMatch";
+import { listBots, useDriven } from "../bots";
 
 /** Reads `?t=<seat token>`, `?w=<watch token>` and `?invite` once, remembers the tokens, and cleans the address bar. */
 function takeUrlParams(id: string) {
@@ -128,6 +129,7 @@ export function MatchPage({ id }: { id: string }) {
           }
         }}
       />
+      <TimeoutNotice match={match} readOnly={readOnly} />
       {inviteOpen && <InviteSheet id={id} mySeat={match.me} onClose={() => setInviteOpen(false)} toast={toast.show} />}
       {choices && !token && (
         <Sheet title="Seats" onClose={() => setChoices(null)}>
@@ -167,5 +169,59 @@ function TurnClock({ match }: { match: MatchView }) {
   const now = useNow(1000).getTime();
   if (match.waiting || match.status.outcome) return null;
   const left = Math.max(0, Math.ceil(((match.turnAt ?? match.updatedAt) + TURN_TIMEOUT_MS - now) / 1000));
-  return <span className={`ml-1 tabular-nums ${left <= 20 ? "font-semibold text-red-700" : ""}`} title="每步限时 120 秒，超时由规则机器人代走">· {left}s</span>;
+  return <span className={`ml-1 tabular-nums ${left <= 20 ? "font-semibold text-red-700" : ""}`} title={`每步限时 ${TURN_TIMEOUT_MS / 1000} 秒，超时由规则机器人代走`}>· {left}s</span>;
+}
+
+/**
+ * After a seat this device answers for runs out of time: its own seat, a seat one of its API bots
+ * plays, or the AI seat it watches. For an AI the fix is usually to think less, so say so.
+ */
+function TimeoutNotice({ match, readOnly }: { match: MatchView; readOnly: boolean }) {
+  const driven = useDriven(match.id);
+  const [seen, setSeen] = useState(() => {
+    try {
+      return Number(sessionStorage.getItem(`rain-go:timeout-seen:${match.id}`) ?? 0);
+    } catch {
+      return 0;
+    }
+  });
+  const mine = (seat: number) => seat === match.me || seat in driven;
+  // The log is capped, so the entry's time (not its index) says which timeouts were already dismissed.
+  const entry = [...match.log].reverse().find((l) => l.timeout && l.t > seen && mine(l.seat));
+  if (!entry || match.status.outcome) return null;
+  const seat = entry.seat;
+  const name = match.seats[seat]?.name ?? "";
+  const botName = driven[seat] && listBots().find((b) => b.id === driven[seat]!.bot)?.name;
+  const secs = TURN_TIMEOUT_MS / 1000;
+  const text = driven[seat]
+    ? `「${botName ?? name}」没在 ${secs} 秒内给出走法，规则机器人替它走了一步。建议在「连接」里把它的思考强度调低，或换一个更快的模型。`
+    : readOnly || match.seats[seat]?.kind === "ai"
+      ? `你的 AI「${name}」没在 ${secs} 秒内走棋，规则机器人替它走了一步。建议让 agent 降低思考强度（比如换低推理档位），或换一个更快的模型。`
+      : `你没在 ${secs} 秒内走棋，规则机器人替你走了一步。`;
+  const dismiss = () => {
+    setSeen(entry.t);
+    try {
+      sessionStorage.setItem(`rain-go:timeout-seen:${match.id}`, String(entry.t));
+    } catch {
+      // Storage unavailable; the notice stays dismissed for this visit.
+    }
+  };
+  return (
+    <div role="alert" className="fixed inset-x-0 bottom-[calc(92px+env(safe-area-inset-bottom))] z-20 px-4">
+      <div className="glass mx-auto flex max-w-[520px] items-start gap-3 !bg-white/80 px-4 py-3">
+        <span className="mt-0.5 text-lg leading-none">⏱</span>
+        <p className="min-w-0 flex-1 text-sm">{text}</p>
+        <div className="flex shrink-0 flex-col gap-1.5">
+          {driven[seat] && (
+            <button className="btn btn-ink !min-h-[32px] !px-3 text-xs" onClick={() => navigate("/connect")}>
+              去调整
+            </button>
+          )}
+          <button className="btn btn-glass !min-h-[32px] !px-3 text-xs" onClick={dismiss}>
+            知道了
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }

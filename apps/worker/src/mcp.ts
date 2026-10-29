@@ -27,9 +27,6 @@ const PLAY_INSTRUCTIONS = `West Window (西窗): this connector plays the seat w
 
 const text = (t: string, isError = false) => ({ content: [{ type: "text" as const, text: t }], isError });
 
-const PRACTICE =
-  "TIMING TEST - a practice position near the end of a game, NOT the real game (the room is still filling up). Treat it exactly like a real turn: think as you normally would, then call play with your move. Your response time is measured; in the real game each turn has 120 seconds before a rule bot moves for you.";
-
 export function buildMcpServer(env: Env, origin: string, ctx: McpContext): McpServer {
   const owner = ctx.mode === "owner";
   const server = new McpServer(
@@ -37,12 +34,6 @@ export function buildMcpServer(env: Env, origin: string, ctx: McpContext): McpSe
     { instructions: owner ? INSTRUCTIONS : ctx.mode === "play" ? PLAY_INSTRUCTIONS : SEAT_INSTRUCTIONS, jsonSchemaValidator: new CfWorkerJsonSchemaValidator() },
   );
   const pageOf = (id: string) => `${origin}/g/${id}`;
-  /** A pending timing test's practice position for this seat, as text, or null. */
-  const practice = async (id: string, m: Match, seat: Seat) => {
-    if (m.benchPending?.seat !== seat) return null;
-    const p = await roomOf(env, id).benchFor(seat);
-    return p ? `${PRACTICE}\n\n${describeMatch(p, seat)}` : null;
-  };
   /** The state for an AI seat, with the read-only link to that seat's own view. */
   const describe = async (m: Match, seat: Seat) => describeMatch(m, seat, `${pageOf(m.id)}?w=${await watchTokenOf(m.seats[seat]!.token)}`);
 
@@ -198,7 +189,7 @@ export function buildMcpServer(env: Env, origin: string, ctx: McpContext): McpSe
     async (args) => {
       const g = await resolve(args);
       if ("error" in g) return text(g.error, true);
-      return text((await practice(g.id, g.match, g.seat)) ?? (await describe(g.match, g.seat)));
+      return text(await describe(g.match, g.seat));
     },
   );
 
@@ -214,17 +205,6 @@ export function buildMcpServer(env: Env, origin: string, ctx: McpContext): McpSe
       },
     },
     async ({ move, say, ...args }) => {
-      const g = await resolve(args);
-      if ("error" in g) return text(g.error, true);
-      if (g.match.benchPending?.seat === g.seat) {
-        const r = await roomOf(env, g.id).answerBench(g.seat, move);
-        if (r) {
-          const secs = (r.ms / 1000).toFixed(1);
-          return text(
-            `Timing test done: ${secs}s, move ${r.legal ? "legal" : `illegal (${r.message})`}. That was practice; the real game has not started. Call wait_for_opponent to wait for it.`,
-          );
-        }
-      }
       const actions: MatchAction[] = [{ type: "move", move }];
       if (say?.trim()) actions.push({ type: "say", text: say });
       return act(args, actions);
@@ -244,8 +224,6 @@ export function buildMcpServer(env: Env, origin: string, ctx: McpContext): McpSe
       if ("error" in g) return text(g.error, true);
       const { match, timedOut } = await roomOf(env, g.id).waitFor(g.seat, timeout_seconds * 1000);
       if (!match) return text("Game disappeared.", true);
-      const test = await practice(g.id, match, g.seat);
-      if (test) return text(test);
       const head = timedOut ? "Still waiting (timed out). Call wait_for_opponent again.\n\n" : "";
       return text(head + (await describe(match, g.seat)));
     },

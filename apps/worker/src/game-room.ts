@@ -5,8 +5,6 @@ import {
   createMatch,
   joinSeat,
   seatByToken,
-  TURN_TIMEOUT_MS,
-  practiceMatch,
   setSeatKind,
   startMatch,
   statusOf,
@@ -23,13 +21,6 @@ import { lobbyOf, newSeatToken, seatByWatch, type Env } from "./env";
 import type { GameMeta } from "./lobby";
 
 export type ActResult = { ok: true; match: Match } | { ok: false; error: string; message: string };
-
-/** A timing test's practice position, kept apart from the real game. `askedAt` is when the AI first saw it. */
-interface Bench {
-  seat: Seat;
-  match: Match;
-  askedAt?: number;
-}
 
 /**
  * One Durable Object per game. Each WebSocket is bound to a seat (or to a spectator) and only
@@ -61,10 +52,10 @@ export class GameRoom extends DurableObject<Env> {
     await lobbyOf(this.env).upsert(metaOf(m));
   }
 
-  /** One alarm covers both clocks: the current turn and an unanswered timing test. */
+  /** Wakes the room when the current turn runs out. */
   private async schedule(m: Match): Promise<void> {
-    const times = [turnDeadline(m), m.benchPending ? m.benchPending.since + TURN_TIMEOUT_MS : null].filter((t): t is number => t !== null);
-    if (times.length) await this.ctx.storage.setAlarm(Math.min(...times));
+    const deadline = turnDeadline(m);
+    if (deadline !== null) await this.ctx.storage.setAlarm(deadline);
     else await this.ctx.storage.deleteAlarm();
   }
 
@@ -72,57 +63,11 @@ export class GameRoom extends DurableObject<Env> {
     let m = await this.load();
     if (!m) return;
     const now = Date.now();
-    let next = timeoutMatch(m, now) ?? m;
-    if (next.benchPending && now >= next.benchPending.since + TURN_TIMEOUT_MS) {
-      const { benchPending, ...rest } = next;
-      next = { ...rest, bench: { ...next.bench, [benchPending.seat]: { ms: null, legal: false, at: now } }, updatedAt: now, version: next.version + 1 };
-      await this.ctx.storage.delete("bench");
-    }
-    if (next !== m) await this.save(next);
+    const next = timeoutMatch(m, now);
+    if (next) await this.save(next);
     else await this.schedule(m);
   }
 
-  /** Host or the seat's watcher, while waiting: sends the AI in `seat` a late practice position and times its answer. */
-  async requestBench(seat: Seat): Promise<ActResult> {
-    const m = await this.load();
-    if (!m) return { ok: false, error: "not_found", message: "找不到这局" };
-    if (!m.waiting) return { ok: false, error: "started", message: "开局后不能再测" };
-    const s = m.seats[seat];
-    if (!s || s.kind !== "ai") return { ok: false, error: "bad_seat", message: "只有 MCP 接入的 AI 座位能这样测" };
-    if (!s.joined) return { ok: false, error: "not_joined", message: "AI 还没接入，接入后再测" };
-    if (m.benchPending && m.benchPending.seat !== seat) return { ok: false, error: "busy", message: "另一个座位正在测，等它结束" };
-    const practice = practiceMatch(m, seat, crypto.getRandomValues(new Uint32Array(1))[0]!);
-    if (!practice) return { ok: false, error: "no_practice", message: "这个游戏没法生成练习局面" };
-    await this.ctx.storage.put("bench", { seat, match: practice } satisfies Bench);
-    const now = Date.now();
-    const next = { ...m, benchPending: { seat, since: now }, updatedAt: now, version: m.version + 1 };
-    await this.save(next);
-    return { ok: true, match: next };
-  }
-
-  /** The practice position for `seat` if a timing test waits on it; the first call starts the stopwatch. */
-  async benchFor(seat: Seat): Promise<Match | null> {
-    const m = await this.load();
-    if (m?.benchPending?.seat !== seat) return null;
-    const b = await this.ctx.storage.get<Bench>("bench");
-    if (!b || b.seat !== seat) return null;
-    if (b.askedAt === undefined) await this.ctx.storage.put("bench", { ...b, askedAt: Date.now() });
-    return b.match;
-  }
-
-  /** The AI's answer to its practice position: records how long it took and whether the move was legal. */
-  async answerBench(seat: Seat, move: string): Promise<{ ms: number; legal: boolean; message?: string } | null> {
-    const m = await this.load();
-    const b = await this.ctx.storage.get<Bench>("bench");
-    if (!m || m.benchPending?.seat !== seat || !b || b.seat !== seat) return null;
-    const now = Date.now();
-    const res = GAMES[m.kind].apply(b.match.state, seat, move.trim());
-    const result = { ms: now - (b.askedAt ?? m.benchPending.since), legal: res.ok };
-    await this.ctx.storage.delete("bench");
-    const { benchPending: _p, ...rest } = m;
-    await this.save({ ...rest, bench: { ...m.bench, [seat]: { ...result, at: now } }, updatedAt: now, version: m.version + 1 });
-    return { ...result, ...(res.ok ? {} : { message: res.error }) };
-  }
 
   async create(o: NewMatchOptions): Promise<Match> {
     if (await this.load()) throw new Error("Game already exists");
@@ -179,7 +124,7 @@ export class GameRoom extends DurableObject<Env> {
       const m = await this.load();
       if (!m) return { match: null, timedOut: false };
       const st = statusOf(m);
-      if (st.outcome || st.waitingOn.includes(seat) || m.benchPending?.seat === seat) return { match: m, timedOut: false };
+      if (st.outcome || st.waitingOn.includes(seat)) return { match: m, timedOut: false };
       const left = deadline - Date.now();
       if (left <= 0) return { match: m, timedOut: true };
       await new Promise<void>((resolve) => {
