@@ -25,8 +25,9 @@ export function roomOf(env: Env, id: string) {
     create: (o: NewMatchOptions) => stub.create(o) as unknown as Promise<Match>,
     get: () => stub.get() as unknown as Promise<Match | null>,
     act: (seat: Seat, action: MatchAction) => stub.act(seat, action) as unknown as Promise<ActResult>,
-    setSeat: (by: Seat, seat: Seat, kind: SeatKind, profile?: { name?: string; avatar?: string; joined?: boolean }) =>
-      stub.setSeat(by, seat, kind, profile) as unknown as Promise<ActResult>,
+    setSeat: (seat: Seat, kind: SeatKind, profile?: { name?: string; avatar?: string; joined?: boolean; host?: boolean }) =>
+      stub.setSeat(seat, kind, profile) as unknown as Promise<ActResult>,
+    start: () => stub.start() as unknown as Promise<ActResult>,
     join: (seat: Seat) => stub.join(seat) as unknown as Promise<Match | null>,
     waitFor: (seat: Seat, ms: number) => stub.waitFor(seat, ms) as unknown as Promise<{ match: Match | null; timedOut: boolean }>,
     fetch: (req: Request) => stub.fetch(req),

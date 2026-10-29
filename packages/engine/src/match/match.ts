@@ -44,7 +44,9 @@ export interface Match {
   resigned?: Seat;
   /** True while a room is filling up: nobody moves until the host starts it. */
   waiting?: boolean;
-  /** Seat of whoever created the room; only the host may change open seats and start. */
+  /** Secret held by whoever created the room; it lets them arrange seats and start, seated or not. Never sent to players. */
+  hostToken?: string;
+  /** The seat the host sits in, if they play. */
   host?: Seat;
   log: LogEntry[];
   chat: MatchChat[];
@@ -55,9 +57,7 @@ export type MatchAction =
   | { type: "resign" }
   | { type: "say"; text: string }
   /** Renames `seat` (default: the acting seat). Anyone at the table may rename anyone. */
-  | { type: "rename"; seat?: Seat; name: string; avatar?: string }
-  /** Host only, while waiting, once every seat is taken. */
-  | { type: "start" };
+  | { type: "rename"; seat?: Seat; name: string; avatar?: string };
 
 export type MatchResult = { ok: true; match: Match } | { ok: false; error: string; message: string };
 
@@ -78,7 +78,9 @@ export interface NewMatchOptions {
   seats: NewSeat[];
   seed: number;
   now: number;
-  /** Opens the table as a waiting room hosted by this seat. */
+  /** Opens the table as a waiting room run by whoever holds this token. */
+  hostToken?: string;
+  /** The seat the host takes, if they play. */
   host?: Seat;
 }
 
@@ -132,7 +134,7 @@ export function createMatch(o: NewMatchOptions): Match {
     ...(cleanAvatar(s.avatar) ? { avatar: cleanAvatar(s.avatar) } : {}),
   }));
   const state = mod.create({ seed: o.seed >>> 0, players: n, options: cleanOptions(o.kind, o.options) });
-  const room = o.host !== undefined && seats[o.host] ? { waiting: true, host: o.host } : {};
+  const room = o.hostToken ? { waiting: true, hostToken: o.hostToken, ...(o.host !== undefined && seats[o.host] ? { host: o.host } : {}) } : {};
   const m: Match = { id: o.id, kind: o.kind, ...(o.kind === "gomoku" && o.informationMode === "equal" ? { informationMode: "equal" as const } : {}), createdAt: o.now, updatedAt: o.now, version: 1, seats, state, ...room, log: [], chat: [] };
   return m.waiting ? m : autoplay(m, o.now);
 }
@@ -211,35 +213,42 @@ export function applyMatchAction(m: Match, seat: Seat, action: MatchAction, now:
       const avatar = cleanAvatar(action.avatar);
       return { ok: true, match: bump({ seats: m.seats.map((s, i) => (i === target ? { ...s, name, ...(avatar ? { avatar } : {}) } : s)) }) };
     }
-    case "start": {
-      if (!m.waiting) return fail("started", "已经开局了");
-      if (seat !== m.host) return fail("not_host", "只有房主能开局");
-      const open = m.seats.filter((s) => !s.joined).length;
-      if (open) return fail("not_full", `还差 ${open} 人`);
-      return { ok: true, match: autoplay(bump({ waiting: false }), now) };
-    }
   }
 }
 
+/** Host only (the caller checks the host token): starts a waiting room once every seat is taken. */
+export function startMatch(m: Match, now: number): MatchResult {
+  if (!m.waiting) return fail("started", "已经开局了");
+  const open = m.seats.filter((s) => !s.joined).length;
+  if (open) return fail("not_full", `还差 ${open} 人`);
+  // Same rule as creating a table: bots alone would play out the whole game for nobody.
+  if (m.seats.every((s) => s.kind === "bot")) return fail("bots_only", "至少要有一个真人或 AI");
+  return { ok: true, match: autoplay({ ...m, waiting: false, updatedAt: now, version: m.version + 1 }, now) };
+}
+
 /**
- * Host only, while waiting: turns an open or bot seat into an open human seat (a friend's invite),
- * an open AI seat (an MCP connector) or a bot. The seat gets a fresh token so old invite links stop working.
+ * Host only (the caller checks the host token), while waiting: turns an open seat, a bot, or the
+ * host's own seat into an open human seat (a friend's invite), an open AI seat (an MCP connector)
+ * or a bot. The seat gets a fresh token so old invite links stop working.
  */
 export function setSeatKind(
   m: Match,
-  by: Seat,
   seat: Seat,
   kind: SeatKind,
   token: string,
   now: number,
-  /** `joined` seats a human seat at once: the host's own browser plays it (a bot of theirs that calls a model API). */
-  profile: { name?: unknown; avatar?: unknown; joined?: boolean } = {},
+  /**
+   * `joined` seats a human seat at once: the host's browser plays it, as a bot of theirs that calls
+   * a model API, or as the host themself when `host` is set.
+   */
+  profile: { name?: unknown; avatar?: unknown; joined?: boolean; host?: boolean } = {},
 ): MatchResult {
   if (!m.waiting) return fail("started", "已经开局了");
-  if (by !== m.host) return fail("not_host", "只有房主能改座位");
   const cur = m.seats[seat];
-  if (!cur || seat === m.host) return fail("bad_seat", "没有这个座位");
-  if (cur.joined && cur.kind !== "bot") return fail("taken", "这个座位已经有人了");
+  if (!cur) return fail("bad_seat", "没有这个座位");
+  if (cur.joined && cur.kind !== "bot" && seat !== m.host) return fail("taken", "这个座位已经有人了");
+  const sitting = profile.host === true && kind === "human";
+  if (sitting && m.host !== undefined && m.host !== seat) return fail("seated", "你已经有座位了");
   if (kind === "bot" && !GAMES[m.kind].bot) return fail("no_bot", `${GAMES[m.kind].name.zh}还没有机器人`);
   const kinds = m.seats.map((s, i) => (i === seat ? { kind } : s));
   const avatar = cleanAvatar(profile.avatar);
@@ -247,11 +256,14 @@ export function setSeatKind(
     kind,
     name: cleanName(profile.name) ?? defaultName(kind, kinds, seat),
     token,
-    joined: kind === "bot" || (kind === "human" && profile.joined === true),
+    joined: kind === "bot" || (kind === "human" && (profile.joined === true || sitting)),
     ...(avatar ? { avatar } : {}),
   };
   const seats = m.seats.map((s, i) => (i === seat ? next : s));
-  return { ok: true, match: { ...m, seats, updatedAt: now, version: m.version + 1 } };
+  // The host either takes this seat or, by giving their own seat away, now only runs the room.
+  const { host: _old, ...rest } = m;
+  const host = sitting ? seat : m.host === seat ? undefined : m.host;
+  return { ok: true, match: { ...rest, ...(host !== undefined ? { host } : {}), seats, updatedAt: now, version: m.version + 1 } };
 }
 
 /** Avatar ids are short preset names, e.g. "drop" or "whale". */
@@ -275,7 +287,7 @@ export const openSeat = (m: Match, kind: SeatKind): Seat | null => {
 };
 
 /** What one seat's client (or a spectator, `null`) receives: redacted state, status, no tokens. */
-export interface MatchView<V = unknown> extends Omit<Match, "state" | "seats"> {
+export interface MatchView<V = unknown> extends Omit<Match, "state" | "seats" | "hostToken"> {
   seats: PublicSeat[];
   me: Seat | null;
   view: V;
@@ -284,7 +296,7 @@ export interface MatchView<V = unknown> extends Omit<Match, "state" | "seats"> {
 }
 
 export function viewMatch<V = unknown>(m: Match, viewer: Seat | null): MatchView<V> {
-  const { state, seats, ...rest } = m;
+  const { state, seats, hostToken: _h, ...rest } = m;
   const mod = GAMES[m.kind];
   return {
     ...rest,

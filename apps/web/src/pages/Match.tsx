@@ -37,7 +37,7 @@ export function MatchPage({ id }: { id: string }) {
   }, []);
   // The site owner opening a game without a seat may take one of the human seats.
   useEffect(() => {
-    if (!owner || token || !match) return;
+    if (!owner || token || !match || match.waiting) return;
     api.invites(id).then((r) => {
       if (r.tokens.some(Boolean)) setChoices(r);
     }, () => {});
@@ -85,7 +85,17 @@ export function MatchPage({ id }: { id: string }) {
     return (
       <>
         {toast.node}
-        <WaitingRoom match={match} token={token} chip={chip} toast={toast.show} extra={extra} />
+        <WaitingRoom
+          match={match}
+          hostToken={prefs.hostToken(id)}
+          onSeat={(t) => {
+            prefs.setSeatToken(id, t);
+            setToken(t);
+          }}
+          chip={chip}
+          toast={toast.show}
+          extra={extra}
+        />
       </>
     );
   }

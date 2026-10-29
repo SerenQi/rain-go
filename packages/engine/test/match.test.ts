@@ -9,6 +9,7 @@ import {
   reversiLegal,
   seatByToken,
   setSeatKind,
+  startMatch,
   shuffled,
   statusOf,
   viewMatch,
@@ -220,44 +221,63 @@ describe("waiting rooms", () => {
       seats: kinds.map((kind, i) => ({ kind, token: `t${i}`, joined: i === 0, avatar: i === 0 ? "drop" : undefined })),
       seed: 7,
       now: 0,
+      hostToken: "h",
       host: 0,
     });
 
   it("holds every move and bot until the host starts a full table", () => {
     let m = room("human", "human", "bot");
-    expect(m.waiting).toBe(true);
+    expect(m).toMatchObject({ waiting: true, host: 0, hostToken: "h" });
+    expect(viewMatch(m, 0)).not.toHaveProperty("hostToken");
     expect(m.log).toHaveLength(0);
     expect(m.seats[0]!.avatar).toBe("drop");
     expect(statusOf(m).waitingOn).toEqual([]);
     expect(applyMatchAction(m, 0, { type: "move", move: "bid 3" }, 1)).toMatchObject({ ok: false, error: "not_started" });
-    expect(applyMatchAction(m, 0, { type: "start" }, 1)).toMatchObject({ ok: false, error: "not_full" });
-    expect(applyMatchAction(joinSeat(m, 1, 1), 1, { type: "start" }, 1)).toMatchObject({ ok: false, error: "not_host" });
+    expect(startMatch(m, 1)).toMatchObject({ ok: false, error: "not_full" });
     m = joinSeat(m, 1, 1);
-    const res = applyMatchAction(m, 0, { type: "start" }, 2);
+    const res = startMatch(m, 2);
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.match.waiting).toBe(false);
     expect(statusOf(res.match).waitingOn.length).toBeGreaterThan(0);
-    expect(applyMatchAction(res.match, 0, { type: "start" }, 3)).toMatchObject({ ok: false, error: "started" });
+    expect(startMatch(res.match, 3)).toMatchObject({ ok: false, error: "started" });
   });
 
   it("lets the host turn open seats into friends, AIs, bots or their own bot, with a fresh token", () => {
     const m = room("human", "human", "human");
-    const bot = setSeatKind(m, 0, 1, "bot", "new1", 1);
+    const bot = setSeatKind(m, 1, "bot", "new1", 1);
     expect(bot).toMatchObject({ ok: true });
     if (!bot.ok) return;
     expect(bot.match.seats[1]).toMatchObject({ kind: "bot", joined: true, token: "new1" });
-    const ai = setSeatKind(bot.match, 0, 1, "ai", "new2", 2, { name: "Claude", avatar: "spark" });
+    const ai = setSeatKind(bot.match, 1, "ai", "new2", 2, { name: "Claude", avatar: "spark" });
     expect(ai.ok && ai.match.seats[1]).toMatchObject({ kind: "ai", joined: false, name: "Claude", avatar: "spark", token: "new2" });
-    const mine = setSeatKind(m, 0, 2, "human", "new3", 3, { name: "小鲸", joined: true });
+    const mine = setSeatKind(m, 2, "human", "new3", 3, { name: "小鲸", joined: true });
     expect(mine.ok && mine.match.seats[2]).toMatchObject({ kind: "human", joined: true, name: "小鲸" });
-    expect(setSeatKind(m, 1, 2, "bot", "x", 1)).toMatchObject({ ok: false, error: "not_host" });
-    expect(setSeatKind(m, 0, 0, "bot", "x", 1)).toMatchObject({ ok: false, error: "bad_seat" });
-    expect(setSeatKind(joinSeat(m, 1, 1), 0, 1, "bot", "x", 1)).toMatchObject({ ok: false, error: "taken" });
-    expect(createMatch({ id: "g", kind: "go", seats: [{ kind: "human", token: "a", joined: true }, { kind: "human", token: "b" }], seed: 1, now: 0, host: 0 }).waiting).toBe(true);
+    expect(setSeatKind(joinSeat(m, 1, 1), 1, "bot", "x", 1)).toMatchObject({ ok: false, error: "taken" });
   });
 
-  it("keeps tables created without a host playing at once", () => {
+  it("lets the host give their own seat to an AI and run the room from outside, or sit back down", () => {
+    const m = room("human", "human", "human");
+    const out = setSeatKind(m, 0, "ai", "new0", 1, { name: "Claude" });
+    expect(out.ok && out.match.seats[0]).toMatchObject({ kind: "ai", joined: false, token: "new0" });
+    if (!out.ok) return;
+    expect(out.match.host).toBeUndefined();
+    expect(out.match.hostToken).toBe("h");
+    const back = setSeatKind(out.match, 2, "human", "new2", 2, { name: "房主", host: true });
+    expect(back.ok && back.match).toMatchObject({ host: 2, seats: [{}, {}, { joined: true, name: "房主" }] });
+    if (!back.ok) return;
+    expect(setSeatKind(back.match, 1, "human", "x", 3, { host: true })).toMatchObject({ ok: false, error: "seated" });
+    const nobody = createMatch({ id: "g", kind: "go", seats: [{ kind: "human", token: "a" }, { kind: "human", token: "b" }], seed: 1, now: 0, hostToken: "h" });
+    expect(nobody.waiting).toBe(true);
+    expect(nobody.host).toBeUndefined();
+    const bots = [0, 1].reduce((acc, i) => {
+      const r = setSeatKind(acc, i, "bot", `b${i}`, 1);
+      return r.ok ? r.match : acc;
+    }, nobody);
+    expect(startMatch(bots, 2)).toMatchObject({ ok: false, error: "bots_only" });
+  });
+
+  it("keeps tables created without a host token playing at once", () => {
     expect(newMatch("gomoku").waiting).toBeUndefined();
   });
 });

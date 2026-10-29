@@ -174,16 +174,18 @@ function CreateRoom({ kind, onClose, toast }: { kind: GameKind; onClose: () => v
   const [count, setCount] = useState(mod.players.default);
   const [name, setName] = useState(() => prefs.lastNames().human);
   const [avatar, setAvatar] = useState(prefs.avatar);
+  const [seated, setSeated] = useState(true);
   const [busy, setBusy] = useState(false);
 
   const create = async () => {
     setBusy(true);
     try {
       const seats: SeatSpec[] = Array.from({ length: count }, (_, i) =>
-        i === 0 ? { kind: "human", me: true, name: name.trim() || undefined, avatar } : { kind: "human" },
+        i === 0 && seated ? { kind: "human", me: true, name: name.trim() || undefined, avatar } : { kind: "human" },
       );
       const res = await api.createGame({ kind, options, seats, room: true });
       if (res.token) prefs.setSeatToken(res.match.id, res.token);
+      if (res.hostToken) prefs.setHostToken(res.match.id, res.hostToken);
       prefs.rememberNames(name);
       prefs.setLastNames(name, prefs.lastNames().ai);
       prefs.setAvatar(avatar);
@@ -223,6 +225,17 @@ function CreateRoom({ kind, onClose, toast }: { kind: GameKind; onClose: () => v
           </div>
         )}
         <div>
+          <div className="mb-1.5 text-sm text-muted">你自己</div>
+          <div className="seg" role="group" aria-label="你自己">
+            <button aria-pressed={seated} onClick={() => setSeated(true)}>
+              我也上桌
+            </button>
+            <button aria-pressed={!seated} onClick={() => setSeated(false)}>
+              只当房主
+            </button>
+          </div>
+        </div>
+        <div className={seated ? "" : "hidden"}>
           <div className="mb-1.5 text-sm text-muted">你的名字和头像</div>
           <div className="flex items-center gap-2">
             <Avatar id={avatar} kind="human" size={44} />
@@ -236,7 +249,11 @@ function CreateRoom({ kind, onClose, toast }: { kind: GameKind; onClose: () => v
             ))}
           </div>
         </div>
-        <p className="text-sm text-muted">创建后进入房间。其余 {count - 1} 个座位可以邀请好友、放入你的 Bot 或加机器人，坐满后由你开始。</p>
+        <p className="text-sm text-muted">
+          {seated
+            ? `创建后进入房间。其余 ${count - 1} 个座位可以邀请好友、放入你的 Bot 或加机器人，坐满后由你开始。`
+            : `你不上桌，${count} 个座位都空出来给好友或 AI，坐满后由你开始，你在旁边观战。之后也可以再坐下。`}
+        </p>
       </div>
       <button className="btn btn-ink mt-4 w-full shrink-0 !min-h-[46px]" disabled={busy} onClick={create}>
         {busy ? "创建中…" : "创建房间"}

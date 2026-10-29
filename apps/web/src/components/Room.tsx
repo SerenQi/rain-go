@@ -1,7 +1,7 @@
 import { GAMES, type MatchView, type Seat } from "@rain-go/engine";
 import { useEffect, useState, type ReactNode } from "react";
 import { mcpPrompt } from "../ai";
-import { api, ApiError, type Invite } from "../api";
+import { api, ApiError, prefs, type Invite } from "../api";
 import { setDriven, useBots, useDriven, type MyBot } from "../bots";
 import { navigate } from "../router";
 import { GLYPH } from "../pages/Lobby";
@@ -31,20 +31,24 @@ export const agentText = (link: string) => `先把这个地址添加为 MCP 连�
 /** The room before the game starts: who sits where, invites, and the host's start button. */
 export function WaitingRoom({
   match,
-  token,
+  hostToken,
+  onSeat,
   chip,
   toast,
   extra,
 }: {
   match: MatchView;
-  token: string;
+  /** Set when this device created the room. */
+  hostToken: string;
+  /** The host took a seat (its token) or gave theirs away (""). */
+  onSeat: (token: string) => void;
   chip: ReactNode;
   toast: (m: string) => void;
   /** The "let AI play for me" control. */
   extra?: ReactNode;
 }) {
   const mod = GAMES[match.kind];
-  const host = match.me !== null && match.me === match.host;
+  const host = Boolean(hostToken);
   const driven = useDriven(match.id);
   const [invites, setInvites] = useState<Invite[] | null>(null);
   const [editing, setEditing] = useState<Seat | null>(null);
@@ -53,13 +57,13 @@ export function WaitingRoom({
 
   useEffect(() => {
     if (!host) return;
-    api.roomInvites(match.id, token).then((r) => setInvites(r.invites), () => {});
-  }, [host, match.id, match.version, token]);
+    api.roomInvites(match.id, hostToken).then((r) => setInvites(r.invites), () => {});
+  }, [host, match.id, match.version, hostToken]);
 
   const start = async () => {
     setBusy(true);
     try {
-      await api.act(match.id, token, { type: "start" });
+      await api.startRoom(match.id, hostToken);
     } catch (e) {
       toast(e instanceof ApiError ? e.message : "开局失败");
     } finally {
@@ -93,7 +97,7 @@ export function WaitingRoom({
 
         <section className="glass px-3 py-3 lg:px-5">
           {match.seats.map((s, i) => {
-            const canEdit = host && i !== match.host && (!s.joined || s.kind === "bot" || Boolean(driven[i]));
+            const canEdit = host && (!s.joined || s.kind === "bot" || Boolean(driven[i]) || i === match.host);
             return (
               <div key={i} className="flex items-center gap-3 rounded-2xl px-2 py-2.5">
                 <Avatar id={s.avatar} kind={s.kind} size={44} className={s.joined ? "" : "opacity-40"} />
@@ -106,7 +110,7 @@ export function WaitingRoom({
                 </div>
                 {canEdit && (
                   <button className="btn btn-glass !min-h-[36px] shrink-0 !px-3 text-sm" onClick={() => setEditing(i)}>
-                    {s.joined ? "更换" : "安排"}
+                    {i === match.host ? "让出" : s.joined ? "更换" : "安排"}
                   </button>
                 )}
               </div>
@@ -123,6 +127,9 @@ export function WaitingRoom({
             {match.me === null ? "你在观战。房主开始后这里会显示牌桌。" : "已入座。等房主开始，你可以先在下面设置让 AI 帮你下。"}
           </div>
         )}
+        {host && match.host === undefined && (
+          <p className="px-1 text-sm text-muted">你没有上桌，开局后在旁边观战。想自己玩，点空座位上的「安排」→「我坐这里」。</p>
+        )}
         {extra && <div className="glass px-4 py-3">{extra}</div>}
         <button className="btn btn-glass w-full" onClick={() => navigate("/")}>
           回大厅
@@ -132,7 +139,8 @@ export function WaitingRoom({
         <SeatSheet
           match={match}
           seat={editing}
-          token={token}
+          hostToken={hostToken}
+          onSeat={onSeat}
           invite={invites[editing] ?? null}
           onInvites={setInvites}
           onClose={() => setEditing(null)}
@@ -149,7 +157,8 @@ type Mode = "menu" | "web" | "mcp";
 function SeatSheet({
   match,
   seat,
-  token,
+  hostToken,
+  onSeat,
   invite,
   onInvites,
   onClose,
@@ -157,7 +166,8 @@ function SeatSheet({
 }: {
   match: MatchView;
   seat: Seat;
-  token: string;
+  hostToken: string;
+  onSeat: (token: string) => void;
   invite: Invite | null;
   onInvites: (i: Invite[]) => void;
   onClose: () => void;
@@ -169,12 +179,15 @@ function SeatSheet({
   const [link, setLink] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const set = async (o: { kind: "human" | "ai" | "bot"; name?: string; avatar?: string; joined?: boolean }) => {
+  const mine = seat === match.host;
+  const set = async (o: { kind: "human" | "ai" | "bot"; name?: string; avatar?: string; joined?: boolean; host?: boolean }) => {
     setBusy(true);
     try {
-      const res = await api.setSeat(match.id, token, { seat, ...o });
+      const res = await api.setSeat(match.id, hostToken, { seat, ...o });
       onInvites(res.invites);
       setDriven(match.id, seat, null);
+      // Giving away your own seat makes you a spectator who still runs the room.
+      if (mine && !o.host) onSeat("");
       return res.invites[seat]!;
     } catch (e) {
       toast(e instanceof ApiError ? e.message : "没改成");
@@ -184,10 +197,18 @@ function SeatSheet({
     }
   };
 
+  const sitHere = async () => {
+    const inv = await set({ kind: "human", name: prefs.lastNames().human || undefined, avatar: prefs.avatar(), host: true });
+    if (inv) {
+      onSeat(tokenOfLink(inv.link));
+      onClose();
+    }
+  };
+
   /** Friends get a fresh link; an existing open link of the right kind is reused. */
   const inviteBy = async (m: "web" | "mcp") => {
     const kind = m === "web" ? "human" : "ai";
-    const cur = invite && invite.kind === kind && !invite.joined ? invite : await set({ kind });
+    const cur = invite && invite.kind === kind && !invite.joined && !mine ? invite : await set({ kind });
     if (!cur) return;
     setLink(cur.link);
     setMode(m);
@@ -211,10 +232,16 @@ function SeatSheet({
   };
 
   return (
-    <Sheet title={`座位 ${seat + 1}`} onClose={onClose}>
+    <Sheet title={mine ? "让出你的座位" : `座位 ${seat + 1}`} onClose={onClose}>
       <div className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto">
         {mode === "menu" && (
           <>
+            {mine && <p className="text-sm text-muted">让出后你仍是房主，可以继续安排座位和开局，开局后在旁边观战。</p>}
+            {match.host === undefined && (
+              <button className="btn btn-ink w-full" disabled={busy} onClick={sitHere}>
+                我坐这里
+              </button>
+            )}
             <div className="text-sm text-muted">邀请好友</div>
             <div className="grid grid-cols-2 gap-2">
               <button className="rounded-2xl border border-white/80 bg-white/40 px-3 py-3 text-left" disabled={busy} onClick={() => inviteBy("web")}>
@@ -251,7 +278,7 @@ function SeatSheet({
             )}
             {match.seats[seat]!.joined && (
               <button className="btn btn-glass w-full" disabled={busy} onClick={async () => (await set({ kind: "human" })) && onClose()}>
-                清空这个座位
+                {mine ? "先空着" : "清空这个座位"}
               </button>
             )}
           </>

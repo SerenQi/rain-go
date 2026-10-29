@@ -6,6 +6,7 @@ import {
   joinSeat,
   seatByToken,
   setSeatKind,
+  startMatch,
   statusOf,
   viewMatch,
   type Match,
@@ -68,11 +69,21 @@ export class GameRoom extends DurableObject<Env> {
     return { ok: true, match: res.match };
   }
 
-  /** Host only, while the room is waiting: invite a friend, an AI or a bot into an open seat. */
-  async setSeat(by: Seat, seat: Seat, kind: SeatKind, profile: { name?: unknown; avatar?: unknown; joined?: boolean } = {}): Promise<ActResult> {
+  /** Host only, while the room is waiting: invite a friend, an AI or a bot into a seat, or move the host. */
+  async setSeat(seat: Seat, kind: SeatKind, profile: { name?: unknown; avatar?: unknown; joined?: boolean; host?: boolean } = {}): Promise<ActResult> {
     const m = await this.load();
     if (!m) return { ok: false, error: "not_found", message: "找不到这局" };
-    const res = setSeatKind(m, by, seat, kind, newSeatToken(m.id), Date.now(), profile);
+    const res = setSeatKind(m, seat, kind, newSeatToken(m.id), Date.now(), profile);
+    if (!res.ok) return res;
+    await this.save(res.match);
+    return { ok: true, match: res.match };
+  }
+
+  /** Host only: starts a waiting room once every seat is taken. */
+  async start(): Promise<ActResult> {
+    const m = await this.load();
+    if (!m) return { ok: false, error: "not_found", message: "找不到这局" };
+    const res = startMatch(m, Date.now());
     if (!res.ok) return res;
     await this.save(res.match);
     return { ok: true, match: res.match };
