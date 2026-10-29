@@ -25,7 +25,9 @@ Artist: **ZipZipPipe** (Bilibili UID 4168597). The artist states the images are 
 
 `whale.webp` (DeepSeek) is a redesign of the original character 「溟月」 by **上善无形**. Both layers are licensed [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/): credit both authors, non-commercial use only, and share derivatives under the same licence. This crop is shared under CC BY-NC-SA 4.0.
 
-Doubao has no portrait here; it shows its logo.
+## Doubao app icon (1)
+
+`bean.webp` (Doubao) is the Doubao app's own icon from its App Store listing (publisher Beijing Chuntian Zhiyun Technology Co., Ltd., a ByteDance company), cropped to its blue circle. It is ByteDance's trademark, used here only to identify the model.
 
 ## Generated (2)
 
