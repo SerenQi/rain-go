@@ -82,6 +82,7 @@ export function Header({ status, left }: { status: ReactNode; left?: ReactNode }
 const NAV = [
   { key: "lobby", label: "大厅", icon: IconHome },
   { key: "game", label: "棋盘", icon: IconBoard },
+  { key: "arena", label: "擂台", icon: IconBoard },
   { key: "connect", label: "连接", icon: IconTerminal },
 ] as const;
 
@@ -89,6 +90,7 @@ function BottomNav({ route }: { route: Route }) {
   const go = (key: (typeof NAV)[number]["key"]) => {
     if (key === "lobby") navigate("/");
     else if (key === "connect") navigate("/connect");
+    else if (key === "arena") navigate("/arena");
     else {
       const last = prefs.lastGame();
       navigate(last ? `/g/${last}` : "/");

@@ -1,4 +1,6 @@
 import { GAMES } from "../games";
+import { toGtp } from "../coords";
+import type { GomokuState } from "../games/gomoku";
 import { MAX_CHAT_LENGTH, cleanName } from "../record";
 import type { GameKind, Outcome, Seat, SeatKind } from "./types";
 
@@ -9,6 +11,8 @@ export interface SeatInfo {
   token: string;
   /** True once someone has taken the seat (always true for bots). */
   joined: boolean;
+  /** Preset avatar id chosen by the web page; the page falls back to a default when absent. */
+  avatar?: string;
 }
 
 export type PublicSeat = Omit<SeatInfo, "token">;
@@ -30,6 +34,7 @@ export interface MatchChat {
 export interface Match {
   id: string;
   kind: GameKind;
+  informationMode?: "equal";
   createdAt: number;
   updatedAt: number;
   /** Bumped on every change, used for waiting and sync. */
@@ -37,6 +42,10 @@ export interface Match {
   seats: SeatInfo[];
   state: unknown;
   resigned?: Seat;
+  /** True while a room is filling up: nobody moves until the host starts it. */
+  waiting?: boolean;
+  /** Seat of whoever created the room; only the host may change open seats and start. */
+  host?: Seat;
   log: LogEntry[];
   chat: MatchChat[];
 }
@@ -46,7 +55,9 @@ export type MatchAction =
   | { type: "resign" }
   | { type: "say"; text: string }
   /** Renames `seat` (default: the acting seat). Anyone at the table may rename anyone. */
-  | { type: "rename"; seat?: Seat; name: string };
+  | { type: "rename"; seat?: Seat; name: string; avatar?: string }
+  /** Host only, while waiting, once every seat is taken. */
+  | { type: "start" };
 
 export type MatchResult = { ok: true; match: Match } | { ok: false; error: string; message: string };
 
@@ -55,16 +66,20 @@ export interface NewSeat {
   name?: string;
   token: string;
   joined?: boolean;
+  avatar?: string;
 }
 
 export interface NewMatchOptions {
   id: string;
   kind: GameKind;
+  informationMode?: "equal";
   options?: Record<string, unknown>;
   /** Seats in turn order; seat 0 acts first. */
   seats: NewSeat[];
   seed: number;
   now: number;
+  /** Opens the table as a waiting room hosted by this seat. */
+  host?: Seat;
 }
 
 const BOT_NAMES = ["小雨", "晚风", "青灯", "檐铃", "竹影"];
@@ -114,10 +129,12 @@ export function createMatch(o: NewMatchOptions): Match {
     name: cleanName(s.name) ?? defaultName(s.kind, o.seats, i),
     token: s.token,
     joined: s.kind === "bot" || Boolean(s.joined),
+    ...(cleanAvatar(s.avatar) ? { avatar: cleanAvatar(s.avatar) } : {}),
   }));
   const state = mod.create({ seed: o.seed >>> 0, players: n, options: cleanOptions(o.kind, o.options) });
-  const m: Match = { id: o.id, kind: o.kind, createdAt: o.now, updatedAt: o.now, version: 1, seats, state, log: [], chat: [] };
-  return autoplay(m, o.now);
+  const room = o.host !== undefined && seats[o.host] ? { waiting: true, host: o.host } : {};
+  const m: Match = { id: o.id, kind: o.kind, ...(o.kind === "gomoku" && o.informationMode === "equal" ? { informationMode: "equal" as const } : {}), createdAt: o.now, updatedAt: o.now, version: 1, seats, state, ...room, log: [], chat: [] };
+  return m.waiting ? m : autoplay(m, o.now);
 }
 
 export interface MatchStatus {
@@ -134,6 +151,7 @@ export function statusOf(m: Match): MatchStatus {
     const winners = m.seats.map((_, i) => i).filter((i) => i !== m.resigned);
     return { waitingOn: [], outcome: { winners, text: "认输" }, resultText: `${names[m.resigned]} 认输` };
   }
+  if (m.waiting) return { waitingOn: [], outcome: null, resultText: null };
   const outcome = mod.outcome(m.state);
   if (!outcome) return { waitingOn: mod.waitingOn(m.state), outcome: null, resultText: null };
   const who = outcome.winners.length ? `${outcome.winners.map((s) => names[s]).join("、")} 胜` : "和局";
@@ -143,7 +161,7 @@ export function statusOf(m: Match): MatchStatus {
 /** Lets bot seats take their turns until a person or AI must act. */
 export function autoplay(m: Match, now: number): Match {
   const mod = GAMES[m.kind];
-  if (!mod.bot) return m;
+  if (!mod.bot || m.waiting) return m;
   let cur = m;
   for (let guard = 0; guard < 1000; guard++) {
     const st = statusOf(cur);
@@ -166,6 +184,7 @@ export function applyMatchAction(m: Match, seat: Seat, action: MatchAction, now:
   const status = statusOf(m);
   switch (action.type) {
     case "move": {
+      if (m.waiting) return fail("not_started", "人还没齐，房主开始后才能走");
       if (status.outcome) return fail("game_over", "对局已经结束");
       const move = String(action.move ?? "").trim();
       if (!move) return fail("empty_move", "没有写这步棋");
@@ -175,6 +194,7 @@ export function applyMatchAction(m: Match, seat: Seat, action: MatchAction, now:
       return { ok: true, match: autoplay(bump({ state: res.state, log }), now) };
     }
     case "resign": {
+      if (m.waiting) return fail("not_started", "还没开局");
       if (status.outcome) return fail("game_over", "对局已经结束");
       return { ok: true, match: bump({ resigned: seat, log: [...m.log, { seat, move: "resign", t: now }].slice(-500) }) };
     }
@@ -188,10 +208,55 @@ export function applyMatchAction(m: Match, seat: Seat, action: MatchAction, now:
       if (!m.seats[target]) return fail("bad_seat", "没有这个座位");
       const name = cleanName(action.name);
       if (!name) return fail("bad_name", "名字要 1 到 40 个字");
-      return { ok: true, match: bump({ seats: m.seats.map((s, i) => (i === target ? { ...s, name } : s)) }) };
+      const avatar = cleanAvatar(action.avatar);
+      return { ok: true, match: bump({ seats: m.seats.map((s, i) => (i === target ? { ...s, name, ...(avatar ? { avatar } : {}) } : s)) }) };
+    }
+    case "start": {
+      if (!m.waiting) return fail("started", "已经开局了");
+      if (seat !== m.host) return fail("not_host", "只有房主能开局");
+      const open = m.seats.filter((s) => !s.joined).length;
+      if (open) return fail("not_full", `还差 ${open} 人`);
+      return { ok: true, match: autoplay(bump({ waiting: false }), now) };
     }
   }
 }
+
+/**
+ * Host only, while waiting: turns an open or bot seat into an open human seat (a friend's invite),
+ * an open AI seat (an MCP connector) or a bot. The seat gets a fresh token so old invite links stop working.
+ */
+export function setSeatKind(
+  m: Match,
+  by: Seat,
+  seat: Seat,
+  kind: SeatKind,
+  token: string,
+  now: number,
+  /** `joined` seats a human seat at once: the host's own browser plays it (a bot of theirs that calls a model API). */
+  profile: { name?: unknown; avatar?: unknown; joined?: boolean } = {},
+): MatchResult {
+  if (!m.waiting) return fail("started", "已经开局了");
+  if (by !== m.host) return fail("not_host", "只有房主能改座位");
+  const cur = m.seats[seat];
+  if (!cur || seat === m.host) return fail("bad_seat", "没有这个座位");
+  if (cur.joined && cur.kind !== "bot") return fail("taken", "这个座位已经有人了");
+  if (kind === "bot" && !GAMES[m.kind].bot) return fail("no_bot", `${GAMES[m.kind].name.zh}还没有机器人`);
+  const kinds = m.seats.map((s, i) => (i === seat ? { kind } : s));
+  const avatar = cleanAvatar(profile.avatar);
+  const next: SeatInfo = {
+    kind,
+    name: cleanName(profile.name) ?? defaultName(kind, kinds, seat),
+    token,
+    joined: kind === "bot" || (kind === "human" && profile.joined === true),
+    ...(avatar ? { avatar } : {}),
+  };
+  const seats = m.seats.map((s, i) => (i === seat ? next : s));
+  return { ok: true, match: { ...m, seats, updatedAt: now, version: m.version + 1 } };
+}
+
+/** Avatar ids are short preset names, e.g. "drop" or "whale". */
+export const cleanAvatar = (raw: unknown): string | undefined =>
+  typeof raw === "string" && /^[a-z0-9-]{1,24}$/.test(raw) ? raw : undefined;
 
 export const seatByToken = (m: Match, token: string | null | undefined): Seat | null => {
   if (!token) return null;
@@ -238,6 +303,24 @@ export function describeMatch(m: Match, seat: Seat, url?: string): string {
   const mod = GAMES[m.kind];
   const labels = mod.seatLabels(m.state);
   const st = statusOf(m);
+  if (m.kind === "gomoku" && m.informationMode === "equal") {
+    const state = m.state as GomokuState;
+    const stones: { black: string[]; white: string[] } = { black: [], white: [] };
+    state.cells.forEach((color, i) => {
+      if (color === 1) stones.black.push(toGtp(i, state.size));
+      if (color === 2) stones.white.push(toGtp(i, state.size));
+    });
+    return JSON.stringify({
+      game: "gomoku",
+      rules: "Freestyle gomoku: 15x15. Black moves first. Place one stone on an empty intersection. Five or more consecutive stones horizontally, vertically, or diagonally wins; a full board is a draw. Columns A through P omit I; rows 1 through 15 count from bottom.",
+      you: seat === 0 ? "black" : "white",
+      turn: st.outcome ? null : state.toPlay === 1 ? "black" : "white",
+      board_size: state.size,
+      stones,
+      last_move: state.last === undefined ? null : toGtp(state.last, state.size),
+      outcome: st.outcome,
+    });
+  }
   const names = m.seats.map((s) => s.name);
   const out = [`Game ${m.id} · ${mod.name.en} (${mod.name.zh}) · ${m.seats.length} players`];
   if (url) out.push(`Page: ${url}`);
@@ -245,7 +328,8 @@ export function describeMatch(m: Match, seat: Seat, url?: string): string {
   out.push(
     `Seats: ${m.seats.map((s, i) => `${i} ${s.name} (${KIND_EN[s.kind]}${labels[i] ? `, ${labels[i]}` : ""}${s.joined ? "" : ", not joined yet"})`).join(" · ")}`,
   );
-  if (st.resultText) out.push(`GAME OVER: ${st.resultText}.`);
+  if (m.waiting) out.push("Status: the room is still filling up; the host starts the game once every seat is taken. Call wait_for_opponent.");
+  else if (st.resultText) out.push(`GAME OVER: ${st.resultText}.`);
   else if (st.waitingOn.includes(seat)) out.push(`Status: YOUR TURN. Call play. Move syntax: ${mod.moveHelp}`);
   else out.push(`Status: waiting for ${st.waitingOn.map((s) => names[s]).join(", ")}. Call wait_for_opponent.`);
   out.push("", mod.describe(m.state, seat, names));

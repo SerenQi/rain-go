@@ -40,11 +40,13 @@ export function buildMcpServer(env: Env, origin: string, ctx: McpContext): McpSe
       id = latest.id;
     }
     if (!isGameId(id)) return { error: `Invalid game id "${id}".` };
-    const match = await roomOf(env, id).get();
+    let match = await roomOf(env, id).get();
     if (!match) return { error: `Game ${id} not found.` };
     if (token) {
       const seat = seatByToken(match, token);
       if (seat === null || match.seats[seat]!.kind !== "ai") return { error: "That seat token does not belong to an AI seat in this game." };
+      // Connecting is what takes the seat, so a waiting room sees the AI arrive before its first move.
+      if (!match.seats[seat]!.joined) match = (await roomOf(env, id).join(seat)) ?? match;
       return { id, match, seat };
     }
     const aiSeats = match.seats.map((s, i) => (s.kind === "ai" ? i : -1)).filter((i) => i >= 0);

@@ -1,4 +1,4 @@
-import type { Match, MatchAction, NewMatchOptions, Seat } from "@rain-go/engine";
+import type { Match, MatchAction, NewMatchOptions, Seat, SeatKind } from "@rain-go/engine";
 import type { ActResult, GameRoom } from "./game-room";
 import type { Lobby } from "./lobby";
 
@@ -8,6 +8,10 @@ export interface Env {
   ASSETS: Fetcher;
   /** Shared secret for the MCP endpoint and for acting as the human player. Unset means open access. */
   ACCESS_TOKEN?: string;
+  /** Explicitly enable unauthenticated browser arena creation. */
+  PUBLIC_ARENA?: string;
+  /** Canonical external origin when running behind a reverse proxy. */
+  PUBLIC_ORIGIN?: string;
 }
 
 export const lobbyOf = (env: Env) => env.LOBBY.get(env.LOBBY.idFromName("main"));
@@ -21,6 +25,8 @@ export function roomOf(env: Env, id: string) {
     create: (o: NewMatchOptions) => stub.create(o) as unknown as Promise<Match>,
     get: () => stub.get() as unknown as Promise<Match | null>,
     act: (seat: Seat, action: MatchAction) => stub.act(seat, action) as unknown as Promise<ActResult>,
+    setSeat: (by: Seat, seat: Seat, kind: SeatKind, profile?: { name?: string; avatar?: string; joined?: boolean }) =>
+      stub.setSeat(by, seat, kind, profile) as unknown as Promise<ActResult>,
     join: (seat: Seat) => stub.join(seat) as unknown as Promise<Match | null>,
     waitFor: (seat: Seat, ms: number) => stub.waitFor(seat, ms) as unknown as Promise<{ match: Match | null; timedOut: boolean }>,
     fetch: (req: Request) => stub.fetch(req),

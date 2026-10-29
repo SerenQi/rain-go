@@ -1,4 +1,4 @@
-import { COLUMNS, fromGtp, neighbors, toGtp } from "../coords";
+import { COLUMNS, fromGtp, toGtp } from "../coords";
 import type { GameModule, Seat } from "../match/types";
 
 /**
@@ -65,19 +65,6 @@ export function gomokuBoardText(s: GomokuState): string {
   }
   rows.push(`    ${cols}`);
   return rows.join("\n");
-}
-
-/** Empty points where `color` would complete five. */
-function winningPoints(s: GomokuState, color: number): number[] {
-  const out: number[] = [];
-  const nb = neighbors(s.size);
-  for (let p = 0; p < s.cells.length; p++) {
-    if (s.cells[p] !== 0 || !nb[p]!.some((q) => s.cells[q] !== 0)) continue;
-    const cells = s.cells.slice();
-    cells[p] = color;
-    if (fiveThrough(cells, s.size, p, color)) out.push(p);
-  }
-  return out;
 }
 
 /** Longest run through `p` along one direction and how many of its two ends are open. */
@@ -188,12 +175,6 @@ export const gomoku: GameModule<GomokuState, GomokuView> = {
     const sym = (c: number) => (c === 1 ? "X (black)" : "O (white)");
     const out = [`You are ${sym(ai)}. ${names[1 - seat]} is ${sym(ai === 1 ? 2 : 1)}. Moves so far: ${s.moves}.`];
     if (s.last !== undefined) out.push(`Last move: ${toGtp(s.last, s.size)}.`);
-    if (!s.winLine && !s.full) {
-      const mine = winningPoints(s, ai);
-      const theirs = winningPoints(s, ai === 1 ? 2 : 1);
-      if (mine.length) out.push(`You can win now at: ${mine.map((p) => toGtp(p, s.size)).join(" ")}.`);
-      if (theirs.length) out.push(`Opponent threatens five at: ${theirs.map((p) => toGtp(p, s.size)).join(" ")}. Block it unless you can win.`);
-    }
     out.push("", gomokuBoardText(s));
     return out.join("\n");
   },

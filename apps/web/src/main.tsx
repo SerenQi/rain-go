@@ -5,6 +5,7 @@ import { Connect } from "./pages/Connect";
 import { MatchPage } from "./pages/Match";
 import { Sandbox } from "./pages/Sandbox";
 import { Lobby } from "./pages/Lobby";
+import { Arena } from "./pages/Arena";
 import { useRoute } from "./router";
 import "./styles.css";
 
@@ -18,6 +19,8 @@ function App() {
         <Sandbox key={route.kind} kind={route.kind} />
       ) : route.name === "connect" ? (
         <Connect />
+      ) : route.name === "arena" ? (
+        <Arena />
       ) : (
         <Lobby />
       )}

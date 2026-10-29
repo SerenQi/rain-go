@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "rain-go-local",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@rain-go/worker", "exec", "wrangler", "dev", "--port", "8799", "--var", "ACCESS_TOKEN:"],
+      "port": 8799
+    }
+  ]
+}

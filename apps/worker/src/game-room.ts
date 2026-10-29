@@ -5,14 +5,16 @@ import {
   createMatch,
   joinSeat,
   seatByToken,
+  setSeatKind,
   statusOf,
   viewMatch,
   type Match,
   type MatchAction,
   type NewMatchOptions,
   type Seat,
+  type SeatKind,
 } from "@rain-go/engine";
-import { lobbyOf, type Env } from "./env";
+import { lobbyOf, newSeatToken, type Env } from "./env";
 import type { GameMeta } from "./lobby";
 
 export type ActResult = { ok: true; match: Match } | { ok: false; error: string; message: string };
@@ -61,6 +63,16 @@ export class GameRoom extends DurableObject<Env> {
     const m = await this.load();
     if (!m) return { ok: false, error: "not_found", message: "找不到这局" };
     const res = applyMatchAction(joinSeat(m, seat, Date.now()), seat, action, Date.now());
+    if (!res.ok) return res;
+    await this.save(res.match);
+    return { ok: true, match: res.match };
+  }
+
+  /** Host only, while the room is waiting: invite a friend, an AI or a bot into an open seat. */
+  async setSeat(by: Seat, seat: Seat, kind: SeatKind, profile: { name?: unknown; avatar?: unknown; joined?: boolean } = {}): Promise<ActResult> {
+    const m = await this.load();
+    if (!m) return { ok: false, error: "not_found", message: "找不到这局" };
+    const res = setSeatKind(m, by, seat, kind, newSeatToken(m.id), Date.now(), profile);
     if (!res.ok) return res;
     await this.save(res.match);
     return { ok: true, match: res.match };
@@ -131,6 +143,7 @@ export function metaOf(m: Match): GameMeta {
     seats: m.seats.map(({ token: _t, ...s }) => s),
     labels: GAMES[m.kind].seatLabels(m.state),
     over: Boolean(st.outcome),
+    ...(m.waiting ? { waiting: true } : {}),
     waitingOn: st.waitingOn,
     moves: m.log.length,
     result: st.resultText ?? undefined,

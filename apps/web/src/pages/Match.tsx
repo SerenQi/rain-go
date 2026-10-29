@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { api, ApiError, prefs, type Invite } from "../api";
+import { AutopilotButton, useAutopilot } from "../components/Autopilot";
 import { Sheet } from "../components/Chat";
 import { InviteSheet } from "../components/InviteSheet";
 import { MatchScreen } from "../components/MatchScreen";
+import { WaitingRoom } from "../components/Room";
 import { Header, hhmm } from "../components/Shell";
 import { useToast } from "../components/Toast";
 import { navigate } from "../router";
@@ -25,6 +27,7 @@ export function MatchPage({ id }: { id: string }) {
   const [inviteOpen, setInviteOpen] = useState(params.invite);
   const [choices, setChoices] = useState<{ invites: Invite[]; tokens: (string | null)[] } | null>(null);
   const toast = useToast();
+  const pilot = useAutopilot(match);
 
   useEffect(() => prefs.setLastGame(id), [id]);
   useEffect(() => {
@@ -60,17 +63,40 @@ export function MatchPage({ id }: { id: string }) {
     );
   }
 
+  const chip = (
+    <>
+      <span className={`inline-block h-2 w-2 rounded-full ${live ? "bg-ink" : "bg-faint"}`} />
+      {live ? `live · ${hhmm(syncedAt ?? Date.now())}` : "offline"}
+    </>
+  );
+  const pilotLines = Object.entries(pilot).filter(([seat]) => Number(seat) !== match.me);
+  const extra = (match.me !== null || pilotLines.length > 0) && (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <AutopilotButton match={match} token={token} state={match.me === null ? undefined : pilot[match.me]} />
+      {pilotLines.map(([seat, s]) => (
+        <span key={seat} className={`chip !text-xs ${s.error ? "!text-red-700" : ""}`}>
+          {s.text}
+        </span>
+      ))}
+    </div>
+  );
+
+  if (match.waiting) {
+    return (
+      <>
+        {toast.node}
+        <WaitingRoom match={match} token={token} chip={chip} toast={toast.show} extra={extra} />
+      </>
+    );
+  }
+
   return (
     <>
       {toast.node}
       <MatchScreen
         match={match}
-        chip={
-          <>
-            <span className={`inline-block h-2 w-2 rounded-full ${live ? "bg-ink" : "bg-faint"}`} />
-            {live ? `live · ${hhmm(syncedAt ?? Date.now())}` : "offline"}
-          </>
-        }
+        chip={chip}
+        extra={extra || undefined}
         onInvite={owner ? () => setInviteOpen(true) : undefined}
         perform={async (action) => {
           if (!token) throw new Error("你在观战，没有座位");

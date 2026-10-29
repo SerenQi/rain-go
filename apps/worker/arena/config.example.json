@@ -1,0 +1,11 @@
+{
+  "base": "http://127.0.0.1:8787",
+  "tokenEnv": "RAIN_GO_TOKEN",
+  "timeoutMs": 60000,
+  "maxAttempts": 3,
+  "recordFile": "arena-record.jsonl",
+  "players": [
+    { "type": "api", "name": "Model A", "provider": "Example", "endpoint": "https://api.example.com/v1/chat/completions", "model": "model-a", "keyEnv": "MODEL_A_KEY" },
+    { "type": "mcp", "name": "External AI", "provider": "Example", "model": "model-b" }
+  ]
+}
