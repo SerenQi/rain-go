@@ -1,4 +1,4 @@
-import { GAMES } from "@rain-go/engine";
+import { GAMES, cleanOptions } from "@rain-go/engine";
 import { useEffect, useState } from "react";
 import { api, ApiError, prefs, type GameMeta } from "../api";
 import { BRAND } from "../brand";
@@ -47,6 +47,24 @@ export function Welcome({ onClose }: { onClose: () => void }) {
     onClose();
     navigate(path);
   };
+  /** No setup at all: a gomoku game against the rule bot, starting at once. */
+  const quickStart = async () => {
+    setBusy(true);
+    try {
+      const name = prefs.lastNames().human.trim() || undefined;
+      const res = await api.createGame({
+        kind: "gomoku",
+        options: cleanOptions("gomoku"),
+        seats: [{ kind: "human", me: true, name, avatar: prefs.avatar() }, { kind: "bot" }],
+      });
+      if (res.token) prefs.setSeatToken(res.match.id, res.token);
+      go(`/g/${res.match.id}`);
+    } catch (e) {
+      setBusy(false);
+      setError(e instanceof ApiError && e.status === 401 ? "这个站点需要访问口令，先在右上角设置里填好" : "开局失败，稍后再试");
+    }
+  };
+
   const join = async () => {
     const path = joinPath(draft);
     if (!path) return setError("认不出这个链接或口令，检查一下是不是完整复制了");
@@ -72,13 +90,31 @@ export function Welcome({ onClose }: { onClose: () => void }) {
             <span className="block text-[1.15rem] font-semibold">玩一局</span>
             <span className="mt-0.5 block text-sm text-white/65">选个玩法开房间，邀请好友或放入 AI</span>
           </button>
-          <button className="rounded-2xl border border-white/80 bg-white/45 px-4 py-4 text-left transition hover:bg-white/65" onClick={() => setStep("join")}>
+          <button className="rounded-2xl border border-white/80 bg-white/45 px-4 py-4 text-left transition hover:bg-white/65" onClick={() => {
+            setError("");
+            setStep("join");
+          }}>
             <span className="block text-[1.15rem] font-semibold">
               加入已有的对局
               {games && games.length > 0 && <span className="ml-2 text-sm font-normal text-muted">{games.length} 局进行中</span>}
             </span>
             <span className="mt-0.5 block text-sm text-muted">回到你的对局，或粘贴好友发来的链接</span>
           </button>
+          {games?.length === 0 && (
+            <button
+              className="flex items-center gap-3 rounded-2xl border border-dashed border-black/15 px-4 py-3 text-left transition hover:bg-white/40 disabled:opacity-50 sm:col-span-2"
+              disabled={busy}
+              onClick={() => void quickStart()}
+            >
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white/70 text-[1.2rem]">五</span>
+              <span className="min-w-0 flex-1">
+                <span className="block font-semibold">{busy ? "开局中…" : "第一次来？先和机器人下一局五子棋"}</span>
+                <span className="block text-sm text-muted">不用设置，马上开始，边下边熟悉</span>
+              </span>
+              <span className="text-faint">›</span>
+            </button>
+          )}
+          {error && <p className="text-sm text-red-700 sm:col-span-2">{error}</p>}
         </div>
       ) : (
         <div className="mt-3 min-h-0 flex-1 space-y-4 overflow-y-auto">

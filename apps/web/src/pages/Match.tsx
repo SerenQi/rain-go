@@ -1,10 +1,11 @@
-import { TURN_TIMEOUT_MS, type MatchView } from "@rain-go/engine";
+import { GAMES, TURN_TIMEOUT_MS, type MatchView } from "@rain-go/engine";
 import { useEffect, useState } from "react";
 import { api, ApiError, prefs, type Invite } from "../api";
 import { AutopilotButton, useAutopilot } from "../components/Autopilot";
 import { Sheet } from "../components/Chat";
 import { InviteSheet } from "../components/InviteSheet";
 import { MatchScreen } from "../components/MatchScreen";
+import { RulesSheet } from "../components/RulesSheet";
 import { WaitingRoom } from "../components/Room";
 import { Header, hhmm, useNow } from "../components/Shell";
 import { useToast } from "../components/Toast";
@@ -20,7 +21,9 @@ function takeUrlParams(id: string) {
   const w = q.get("w");
   if (w) prefs.setWatchToken(id, w);
   if (q.size) history.replaceState(null, "", `/g/${id}`);
-  return { invite: q.has("invite") };
+  // Opening someone else's seat or watch link: say where they landed. The host's own links don't count.
+  const arrived = prefs.hostToken(id) ? null : t ? "seat" : w ? "watch" : null;
+  return { invite: q.has("invite"), arrived };
 }
 
 export function MatchPage({ id }: { id: string }) {
@@ -33,6 +36,8 @@ export function MatchPage({ id }: { id: string }) {
   const [owner, setOwner] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(params.invite);
   const [choices, setChoices] = useState<{ invites: Invite[]; tokens: (string | null)[] } | null>(null);
+  const [arrived, setArrived] = useState(params.arrived);
+  const [rulesOpen, setRulesOpen] = useState(false);
   const toast = useToast();
   const pilot = useAutopilot(match);
 
@@ -89,10 +94,22 @@ export function MatchPage({ id }: { id: string }) {
     </div>
   );
 
+  const notices = (
+    <>
+      {arrived && match.me !== null ? (
+        <ArrivalNotice match={match} watching={arrived === "watch"} onRules={() => setRulesOpen(true)} onClose={() => setArrived(null)} />
+      ) : (
+        !match.waiting && <TimeoutNotice match={match} readOnly={readOnly} />
+      )}
+      {rulesOpen && <RulesSheet kind={match.kind} onClose={() => setRulesOpen(false)} />}
+    </>
+  );
+
   if (match.waiting) {
     return (
       <>
         {toast.node}
+        {notices}
         <WaitingRoom
           match={readOnly ? { ...match, me: null } : match}
           watch={readOnly && match.me !== null ? { seat: match.me, token: watchToken } : undefined}
@@ -129,7 +146,7 @@ export function MatchPage({ id }: { id: string }) {
           }
         }}
       />
-      <TimeoutNotice match={match} readOnly={readOnly} />
+      {notices}
       {inviteOpen && <InviteSheet id={id} mySeat={match.me} onClose={() => setInviteOpen(false)} toast={toast.show} />}
       {choices && !token && (
         <Sheet title="Seats" onClose={() => setChoices(null)}>
@@ -218,6 +235,32 @@ function TimeoutNotice({ match, readOnly }: { match: MatchView; readOnly: boolea
             </button>
           )}
           <button className="btn btn-glass !min-h-[32px] !px-3 text-xs" onClick={dismiss}>
+            知道了
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** For someone who just opened a friend's link: which seat is theirs and what they can do with it. */
+function ArrivalNotice({ match, watching, onRules, onClose }: { match: MatchView; watching: boolean; onRules: () => void; onClose: () => void }) {
+  const seat = match.me!;
+  const game = GAMES[match.kind].name.zh;
+  const where = match.labels[seat] || ` ${seat + 1} 号位`;
+  const text = watching
+    ? `你在看「${match.seats[seat]?.name ?? ""}」在${game}里的视角，只能看到它自己的牌，不能替它操作。`
+    : `你被邀请坐进${game}的${where}。${match.waiting ? "等房主开局，" : ""}可以自己下，也可以点「让 AI 帮我下」，用你自己的 API Bot 代下。`;
+  return (
+    <div role="status" className="fixed inset-x-0 bottom-[calc(92px+env(safe-area-inset-bottom))] z-20 px-4 lg:inset-x-auto lg:right-8 lg:bottom-8 lg:w-[440px] lg:px-0">
+      <div className="glass mx-auto flex max-w-[520px] items-start gap-3 !bg-white/80 px-4 py-3">
+        <span className="mt-0.5 text-lg leading-none">👋</span>
+        <p className="min-w-0 flex-1 text-sm">{text}</p>
+        <div className="flex shrink-0 flex-col gap-1.5">
+          <button className="btn btn-ink !min-h-[32px] !px-3 text-xs" onClick={onRules}>
+            看规则
+          </button>
+          <button className="btn btn-glass !min-h-[32px] !px-3 text-xs" onClick={onClose}>
             知道了
           </button>
         </div>

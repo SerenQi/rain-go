@@ -134,7 +134,7 @@ export function WaitingRoom({
           )}
         </div>
         <aside className="space-y-3 lg:sticky lg:top-6">
-          <section className="glass hidden px-6 py-5 text-sm text-muted lg:block">
+          <section className={`glass hidden px-6 py-5 text-sm text-muted ${host ? "lg:block" : ""}`}>
             <div className="mb-2 text-[1.1rem] font-semibold text-ink">怎么坐满</div>
             <ul className="space-y-2">
               <li className="stat-bar">邀请好友：发网页链接自己玩，或发 MCP 提示词给他的 agent。</li>

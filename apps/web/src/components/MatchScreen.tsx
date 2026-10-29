@@ -4,7 +4,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { UIS } from "../games";
 import type { BoardProps } from "../games/types";
 import { ChatInput, ChatList, Sheet } from "./Chat";
-import { DropMark, IconChat, IconFlag, IconGear, IconHome, IconInvite, IconName } from "./icons";
+import { DropMark, IconChat, IconFlag, IconGear, IconHome, IconInvite, IconName, IconRules } from "./icons";
+import { RulesSheet, firstVisit } from "./RulesSheet";
 import { Settings } from "./Settings";
 import { NameSheet } from "./NameSheet";
 import { Pill, Stat } from "./Pill";
@@ -42,6 +43,11 @@ export function MatchScreen({
   const [chatOpen, setChatOpen] = useState(false);
   const [namesOpen, setNamesOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [rulesOpen, setRulesOpen] = useState(false);
+  // A newcomer to this game gets its rules once, unasked.
+  useEffect(() => {
+    if (!readOnly && !match.status.outcome && firstVisit(match.kind)) setRulesOpen(true);
+  }, [match.kind]);
   const [seenChat, setSeenChat] = useState(0);
   const mod = GAMES[match.kind];
   const ui = UIS[match.kind];
@@ -168,6 +174,7 @@ export function MatchScreen({
 
   const sheets = (
     <>
+      {rulesOpen && <RulesSheet kind={match.kind} onClose={() => setRulesOpen(false)} />}
       {chatOpen && (
         <Sheet title="Whisper" onClose={() => setChatOpen(false)}>
           <ChatList chat={match.chat} me={me} names={names} className="mt-3 min-h-0 flex-1" />
@@ -221,6 +228,9 @@ export function MatchScreen({
           <IconInvite width={20} height={20} />
         </button>
       )}
+      <button className="btn btn-glass shrink-0 !px-3.5" onClick={() => setRulesOpen(true)} aria-label="规则">
+        <IconRules width={20} height={20} />
+      </button>
       <button className="btn btn-glass shrink-0 !px-3.5" onClick={() => setNamesOpen(true)} aria-label="名字">
         <IconName width={20} height={20} />
       </button>
@@ -298,6 +308,9 @@ export function MatchScreen({
                   <IconInvite width={20} height={20} />
                 </button>
               )}
+              <button className={tool} onClick={() => setRulesOpen(true)} aria-label="规则">
+                <IconRules width={20} height={20} />
+              </button>
               <button className={tool} onClick={() => setNamesOpen(true)} aria-label="名字">
                 <IconName width={20} height={20} />
               </button>
@@ -374,6 +387,9 @@ export function MatchScreen({
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-x-2 text-[1.05rem] text-muted">
             <span>{seatLine}</span>
+            <button className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.95rem] text-ink-2 hover:bg-white/50" onClick={() => setRulesOpen(true)}>
+              <IconRules width={16} height={16} /> 规则
+            </button>
             <button className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.95rem] text-ink-2 hover:bg-white/50" onClick={() => setNamesOpen(true)}>
               <IconName width={16} height={16} /> 改名
             </button>
