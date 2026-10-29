@@ -52,6 +52,26 @@ export function gameOfToken(token: string | null | undefined): string | null {
   return m ? m[1]! : null;
 }
 
+/**
+ * A read-only link for one seat: "<gameId>-w<hash>". It is a one-way hash of the seat token, so it
+ * shows that seat's own cards but cannot be turned back into the token that acts for the seat.
+ */
+export async function watchTokenOf(seatToken: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`rain-go watch:${seatToken}`)));
+  return `${gameOfToken(seatToken)}-w${[...digest.slice(0, 16)].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
+}
+
+export const isWatchToken = (token: string | null | undefined): token is string => Boolean(token && /^[a-z0-9]{6,32}-w[0-9a-f]{32}$/.test(token));
+
+/** The seat a watch token shows, or null. Bots have nothing to hide but nobody needs their view either. */
+export async function seatByWatch(m: Match, token: string | null | undefined): Promise<Seat | null> {
+  if (!isWatchToken(token) || !token.startsWith(`${m.id}-`)) return null;
+  for (let i = 0; i < m.seats.length; i++) {
+    if (m.seats[i]!.kind !== "bot" && safeEqual(await watchTokenOf(m.seats[i]!.token), token)) return i;
+  }
+  return null;
+}
+
 function safeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;

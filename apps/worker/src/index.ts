@@ -1,6 +1,6 @@
 import { GAMES, describeMatch, isGameKind, seatByToken, viewMatch, type Match, type MatchAction, type SeatKind } from "@rain-go/engine";
 import { Hono } from "hono";
-import { authorized, gameOfToken, isGameId, lobbyOf, newGameId, newSeatToken, roomOf, type Env } from "./env";
+import { authorized, gameOfToken, isGameId, lobbyOf, newGameId, newSeatToken, roomOf, seatByWatch, type Env } from "./env";
 import { handleMcp } from "./mcp";
 import { buildSeats, invitesOf } from "./seats";
 
@@ -66,7 +66,9 @@ app.get("/api/games/:id", async (c) => {
   if (!isGameId(id)) return c.json({ error: "bad_id" }, 400);
   const match = await roomOf(c.env, id).get();
   if (!match) return c.json({ error: "not_found" }, 404);
-  return c.json({ match: viewMatch(match, seatByToken(match, seatTokenOf(c.req.raw))) });
+  const watch = c.req.header("x-watch");
+  const seat = watch ? await seatByWatch(match, watch) : seatByToken(match, seatTokenOf(c.req.raw));
+  return c.json({ match: viewMatch(match, seat) });
 });
 
 /** The site owner or the room's host: every seat with its invite link, e.g. to send a friend their seat. */
@@ -228,14 +230,14 @@ app.post("/api/arena/:id/move", async (c) => {
 
 const mcp = async (req: Request, env: Env, token?: string) => {
   if (!authorized(env, req, token)) return unauthorized();
-  return handleMcp(req, env, new URL(req.url).origin, { mode: "owner" });
+  return handleMcp(req, env, env.PUBLIC_ORIGIN ?? new URL(req.url).origin, { mode: "owner" });
 };
 app.all("/mcp", (c) => mcp(c.req.raw, c.env));
 /** A connector for one AI seat only: it can play that seat and nothing else. */
 app.all("/mcp/seat/:seatToken", (c) => {
   const token = c.req.param("seatToken");
   if (!gameOfToken(token)) return unauthorized();
-  return handleMcp(c.req.raw, c.env, new URL(c.req.url).origin, { mode: "seat", token });
+  return handleMcp(c.req.raw, c.env, c.env.PUBLIC_ORIGIN ?? new URL(c.req.url).origin, { mode: "seat", token });
 });
 app.all("/mcp/:token", (c) => mcp(c.req.raw, c.env, c.req.param("token")));
 

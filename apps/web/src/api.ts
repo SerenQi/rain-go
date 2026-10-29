@@ -50,6 +50,9 @@ export const prefs = {
   /** The seat token this device holds for a game. */
   seatToken: (id: string) => read(`rain-go:seat:${id}`),
   setSeatToken: (id: string, token: string) => write(`rain-go:seat:${id}`, token),
+  /** A read-only link to one seat's view, e.g. the seat this person's AI plays. */
+  watchToken: (id: string) => read(`rain-go:watch:${id}`),
+  setWatchToken: (id: string, token: string) => write(`rain-go:watch:${id}`, token),
   /** The host token for a room this device created. */
   hostToken: (id: string) => read(`rain-go:host:${id}`),
   setHostToken: (id: string, token: string) => write(`rain-go:host:${id}`, token),
@@ -117,7 +120,8 @@ export const api = {
   listGames: () => request<{ games: GameMeta[] }>("/api/games").then((r) => r.games),
   createGame: (o: { kind: GameKind; options: Record<string, string>; seats: SeatSpec[]; room?: boolean }) =>
     request<{ match: MatchView; token: string | null; hostToken: string | null; invites: Invite[] }>("/api/games", { method: "POST", body: JSON.stringify(o) }),
-  getGame: (id: string, seatToken?: string) => request<{ match: MatchView }>(`/api/games/${id}`, {}, seatToken).then((r) => r.match),
+  getGame: (id: string, seatToken?: string, watchToken?: string) =>
+    request<{ match: MatchView }>(`/api/games/${id}`, watchToken ? { headers: { "x-watch": watchToken } } : {}, seatToken).then((r) => r.match),
   invites: (id: string) => request<{ invites: Invite[]; tokens: (string | null)[] }>(`/api/games/${id}/invites`),
   act: (id: string, seatToken: string, action: MatchAction) =>
     request<{ match: MatchView }>(`/api/games/${id}/actions`, { method: "POST", body: JSON.stringify(action) }, seatToken).then((r) => r.match),

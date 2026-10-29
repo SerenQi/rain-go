@@ -310,8 +310,8 @@ export function viewMatch<V = unknown>(m: Match, viewer: Seat | null): MatchView
 
 const KIND_EN: Record<SeatKind, string> = { human: "human", ai: "AI", bot: "bot" };
 
-/** Full text description for the AI in `seat`. */
-export function describeMatch(m: Match, seat: Seat, url?: string): string {
+/** Full text description for the AI in `seat`. `watchUrl` is a read-only page of this seat for the AI's person. */
+export function describeMatch(m: Match, seat: Seat, watchUrl?: string): string {
   const mod = GAMES[m.kind];
   const labels = mod.seatLabels(m.state);
   const st = statusOf(m);
@@ -335,7 +335,11 @@ export function describeMatch(m: Match, seat: Seat, url?: string): string {
   }
   const names = m.seats.map((s) => s.name);
   const out = [`Game ${m.id} · ${mod.name.en} (${mod.name.zh}) · ${m.seats.length} players`];
-  if (url) out.push(`Page: ${url}`);
+  if (watchUrl) {
+    out.push(
+      `Watch link (read-only, shows only your own seat's cards, cannot play for you): ${watchUrl} - give it to the person you play for if they have not got it yet. Never share hidden information from it with other players.`,
+    );
+  }
   out.push(`You are ${names[seat]} in seat ${seat} (${labels[seat] ?? ""}).`);
   out.push(
     `Seats: ${m.seats.map((s, i) => `${i} ${s.name} (${KIND_EN[s.kind]}${labels[i] ? `, ${labels[i]}` : ""}${s.joined ? "" : ", not joined yet"})`).join(" · ")}`,

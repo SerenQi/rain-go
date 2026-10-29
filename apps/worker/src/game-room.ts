@@ -15,7 +15,7 @@ import {
   type Seat,
   type SeatKind,
 } from "@rain-go/engine";
-import { lobbyOf, newSeatToken, type Env } from "./env";
+import { lobbyOf, newSeatToken, seatByWatch, type Env } from "./env";
 import type { GameMeta } from "./lobby";
 
 export type ActResult = { ok: true; match: Match } | { ok: false; error: string; message: string };
@@ -120,12 +120,15 @@ export class GameRoom extends DurableObject<Env> {
   async fetch(req: Request): Promise<Response> {
     if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") return new Response("Expected WebSocket", { status: 426 });
     let m = await this.load();
-    const seat = m ? seatByToken(m, new URL(req.url).searchParams.get("t")) : null;
+    const q = new URL(req.url).searchParams;
+    // A watch link sees its seat's view but never takes the seat.
+    const watched = m && q.has("w") ? await seatByWatch(m, q.get("w")) : null;
+    const seat = watched ?? (m ? seatByToken(m, q.get("t")) : null);
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment({ seat });
-    if (m && seat !== null && m.seats[seat]?.kind === "human" && !m.seats[seat]!.joined) {
+    if (m && watched === null && seat !== null && m.seats[seat]?.kind === "human" && !m.seats[seat]!.joined) {
       m = joinSeat(m, seat, Date.now());
       await this.save(m);
     }

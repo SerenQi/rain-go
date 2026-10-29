@@ -81,4 +81,4 @@ export async function askMove(c: ModelConfig, table: string, moveHelp: string, c
 }
 
 export const mcpPrompt = (connector = "西窗") =>
-  `请使用已连接的 ${connector} MCP 座位玩这局游戏。先调用 get_state 查看状态；轮到你时用 play 提交合法走法；否则调用 wait_for_opponent 等待，超时后继续等待，直到对局结束。房间没坐满时也请一直等待。`;
+  `请使用已连接的 ${connector} MCP 座位玩这局游戏。先调用 get_state 查看状态，并把状态里的「Watch link」观战链接发给我（只读，只能看到你自己的牌）。轮到你时用 play 提交合法走法；否则调用 wait_for_opponent 等待，超时后继续等待，直到对局结束。房间没坐满时也请一直等待。`;

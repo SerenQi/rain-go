@@ -24,6 +24,7 @@ export function MatchScreen({
   chip,
   extra,
   onInvite,
+  readOnly = false,
 }: {
   match: MatchView;
   perform: (a: MatchAction) => Promise<void>;
@@ -31,6 +32,8 @@ export function MatchScreen({
   extra?: ReactNode;
   /** Shown as an invite button when the table still has open seats. */
   onInvite?: () => void;
+  /** Watching through `me`'s eyes (its own cards) without being able to act for it. */
+  readOnly?: boolean;
 }) {
   const wide = useWide();
   const landscape = useLandscape();
@@ -45,6 +48,8 @@ export function MatchScreen({
   const me = match.me;
   const names = match.seats.map((s) => s.name);
   const n = match.seats.length;
+  /** Whether this screen may move, chat and resign for `me`. */
+  const canPlay = me !== null && !readOnly;
 
   useEffect(() => {
     if (chatOpen) setSeenChat(match.chat.length);
@@ -65,7 +70,7 @@ export function MatchScreen({
   }, [wide, landscape, ui.prefersLandscape, match.kind, toast.show]);
 
   const send = async (a: MatchAction) => {
-    if (busy || me === null) return false;
+    if (busy || !canPlay) return false;
     setBusy(true);
     try {
       await perform(a);
@@ -79,7 +84,7 @@ export function MatchScreen({
   };
 
   const st = match.status;
-  const myTurn = me !== null && !st.outcome && st.waitingOn.includes(me);
+  const myTurn = canPlay && me !== null && !st.outcome && st.waitingOn.includes(me);
   const props: BoardProps = {
     match,
     view: match.view,
@@ -97,8 +102,13 @@ export function MatchScreen({
   const waitingNames = st.waitingOn.filter((s) => s !== me).map((s) => names[s]);
   const status =
     st.resultText ??
+    (readOnly && me !== null
+      ? `只读 · ${names[me]} 的视角${waitingNames.length ? ` · 等 ${waitingNames.join("、")}` : ` · 轮到 ${names[me]}`}`
+      : null) ??
     ui.status?.(match.view, match) ??
-    (me === null ? `观战中 · 等 ${waitingNames.join("、")}` : myTurn ? "轮到你了" : `${waitingNames.join("、") || "对手"} 思考中…`);
+    (me === null
+        ? `观战中 · 等 ${waitingNames.join("、")}`
+        : myTurn ? "轮到你了" : `${waitingNames.join("、") || "对手"} 思考中…`);
   const badge = ui.badge?.(match.view, match) ?? { value: String(match.log.length), label: "MOVE" };
   const unread = match.chat.length > seenChat && match.chat.at(-1)?.seat !== me;
   const labelOf = (i: Seat) => match.labels[i] ?? "";
@@ -161,7 +171,7 @@ export function MatchScreen({
       {chatOpen && (
         <Sheet title="Whisper" onClose={() => setChatOpen(false)}>
           <ChatList chat={match.chat} me={me} names={names} className="mt-3 min-h-0 flex-1" />
-          {me !== null && (
+          {canPlay && me !== null && (
             <div className="mt-3 flex shrink-0">
               <ChatInput to={n === 2 ? names[1 - me]! : "大家"} busy={busy} compact onSend={(text) => send({ type: "say", text })} />
             </div>
@@ -201,7 +211,7 @@ export function MatchScreen({
   );
   const iconButtons = (
     <>
-      {!st.outcome && me !== null && (
+      {!st.outcome && canPlay && (
         <button className="btn btn-glass shrink-0 !px-3.5" onClick={resign} aria-label="认输">
           <IconFlag width={20} height={20} />
         </button>
@@ -266,7 +276,7 @@ export function MatchScreen({
                 </button>
               )}
             </div>
-            {Actions && !st.outcome && me !== null && (
+            {Actions && !st.outcome && canPlay && (
               <div className="flex shrink-0 gap-2 [&_.btn]:!min-h-[42px] [&_.btn]:flex-1">
                 <Actions {...props} />
               </div>
@@ -275,7 +285,7 @@ export function MatchScreen({
               <button className={tool} onClick={() => navigate("/")} aria-label="回大厅">
                 <IconHome width={20} height={20} />
               </button>
-              {!st.outcome && me !== null && (
+              {!st.outcome && canPlay && (
                 <button className={tool} onClick={resign} aria-label="认输">
                   <IconFlag width={20} height={20} />
                 </button>
@@ -323,7 +333,7 @@ export function MatchScreen({
           {seatStrip}
           {board}
           <div className="flex shrink-0 gap-2 [&_.btn]:!min-h-[44px]">
-            {Actions && !st.outcome && me !== null ? (
+            {Actions && !st.outcome && canPlay ? (
               <Actions {...props} />
             ) : (
               <div className="chip min-w-0 flex-1 justify-center !text-ink">
@@ -375,7 +385,7 @@ export function MatchScreen({
         <motion.section {...card} className="area-board flex h-[min(78vh,760px)] flex-col">
           {board}
         </motion.section>
-        {me !== null && !st.outcome && (
+        {canPlay && !st.outcome && (
           <motion.section {...card} className="area-controls flex flex-wrap gap-3">
             {Actions && <Actions {...props} />}
             <button className="btn btn-glass flex-1" onClick={resign}>
@@ -396,7 +406,7 @@ export function MatchScreen({
           <motion.section {...card} className="glass px-6 py-5">
             <div className="text-[1.3rem] font-semibold">Whisper</div>
             <ChatList chat={match.chat} me={me} names={names} className="mt-3 max-h-56" />
-            {me !== null && (
+            {canPlay && me !== null && (
               <div className="mt-3 flex">
                 <ChatInput to={n === 2 ? names[1 - me]! : "大家"} busy={busy} onSend={(text) => send({ type: "say", text })} />
               </div>

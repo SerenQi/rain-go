@@ -10,11 +10,13 @@ import { useToast } from "../components/Toast";
 import { navigate } from "../router";
 import { useMatch } from "../useMatch";
 
-/** Reads `?t=<seat token>` and `?invite` once, remembers the token, and cleans the address bar. */
+/** Reads `?t=<seat token>`, `?w=<watch token>` and `?invite` once, remembers the tokens, and cleans the address bar. */
 function takeUrlParams(id: string) {
   const q = new URLSearchParams(location.search);
   const t = q.get("t");
   if (t) prefs.setSeatToken(id, t);
+  const w = q.get("w");
+  if (w) prefs.setWatchToken(id, w);
   if (q.size) history.replaceState(null, "", `/g/${id}`);
   return { invite: q.has("invite") };
 }
@@ -22,7 +24,10 @@ function takeUrlParams(id: string) {
 export function MatchPage({ id }: { id: string }) {
   const [params] = useState(() => takeUrlParams(id));
   const [token, setToken] = useState(() => prefs.seatToken(id));
-  const { match, setMatch, error, live, syncedAt } = useMatch(id, token);
+  const [watchToken] = useState(() => prefs.watchToken(id));
+  const { match, setMatch, error, live, syncedAt } = useMatch(id, token, watchToken);
+  /** Watching the seat a person's AI plays: its own cards, no moves. */
+  const readOnly = !token && Boolean(watchToken) && match?.me != null;
   const [owner, setOwner] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(params.invite);
   const [choices, setChoices] = useState<{ invites: Invite[]; tokens: (string | null)[] } | null>(null);
@@ -70,7 +75,7 @@ export function MatchPage({ id }: { id: string }) {
     </>
   );
   const pilotLines = Object.entries(pilot).filter(([seat]) => Number(seat) !== match.me);
-  const extra = (match.me !== null || pilotLines.length > 0) && (
+  const extra = !readOnly && (match.me !== null || pilotLines.length > 0) && (
     <div className="flex flex-wrap items-center gap-1.5">
       <AutopilotButton match={match} token={token} state={match.me === null ? undefined : pilot[match.me]} />
       {pilotLines.map(([seat, s]) => (
@@ -86,7 +91,7 @@ export function MatchPage({ id }: { id: string }) {
       <>
         {toast.node}
         <WaitingRoom
-          match={match}
+          match={readOnly ? { ...match, me: null } : match}
           hostToken={prefs.hostToken(id)}
           onSeat={(t) => {
             prefs.setSeatToken(id, t);
@@ -106,6 +111,7 @@ export function MatchPage({ id }: { id: string }) {
       <MatchScreen
         match={match}
         chip={chip}
+        readOnly={readOnly}
         extra={extra || undefined}
         onInvite={owner ? () => setInviteOpen(true) : undefined}
         perform={async (action) => {

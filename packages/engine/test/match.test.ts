@@ -277,6 +277,12 @@ describe("waiting rooms", () => {
     expect(startMatch(bots, 2)).toMatchObject({ ok: false, error: "bots_only" });
   });
 
+  it("labels the seat's read-only watch link in the AI's state", () => {
+    const text = describeMatch(room("human", "ai", "bot"), 1, "https://x.test/g/r1?w=abc");
+    expect(text).toContain("Watch link (read-only, shows only your own seat's cards, cannot play for you): https://x.test/g/r1?w=abc");
+    expect(describeMatch(room("human", "ai", "bot"), 1)).not.toContain("Watch link");
+  });
+
   it("keeps tables created without a host token playing at once", () => {
     expect(newMatch("gomoku").waiting).toBeUndefined();
   });
